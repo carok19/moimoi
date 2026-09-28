@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+
+# Datos locales de MoiMoi (canciones procesadas, base de datos)
+data/
+*.db
+
+# Sistema
+.DS_Store
+Thumbs.db
