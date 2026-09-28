@@ -22,6 +22,23 @@ def _lan_ip() -> str | None:
         return None
 
 
+def download_models(cfg) -> None:
+    """Descarga los modelos de Demucs que usa MoiMoi (quedan en la carpeta de datos)."""
+    import os
+
+    cfg.ensure_dirs()
+    os.environ.setdefault("TORCH_HOME", str(cfg.data_dir / "modelos"))
+    from demucs.pretrained import get_model
+
+    from .separation.base import PRESETS
+
+    names = sorted({p.model for p in PRESETS.values()} | {p.model_hq for p in PRESETS.values()})
+    for name in names:
+        print(f"Descargando {name}…", flush=True)
+        get_model(name, repo=cfg.model_repo)
+    print(f"Listo. Modelos guardados en {os.environ['TORCH_HOME']}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="moimoi", description="MoiMoi: separador de pistas con IA")
     parser.add_argument("--host", help="Dirección (usa 0.0.0.0 para abrirlo desde otros equipos de tu red)")
@@ -29,6 +46,8 @@ def main() -> None:
     parser.add_argument("--data-dir", type=Path, help="Carpeta de datos (por defecto ~/MoiMoi)")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda", "mps"], help="Dónde correr la IA")
     parser.add_argument("--no-browser", action="store_true", help="No abrir el navegador")
+    parser.add_argument("--descargar-modelos", action="store_true",
+                        help="Descargar ahora los modelos de IA (para usar MoiMoi después sin internet) y salir")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -45,6 +64,10 @@ def main() -> None:
     if args.no_browser:
         overrides["open_browser"] = False
     cfg = cfg.with_overrides(**overrides)
+
+    if args.descargar_modelos:
+        download_models(cfg)
+        return
 
     import uvicorn
 

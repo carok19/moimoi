@@ -1,0 +1,2 @@
+# Opcional: transcripción de letras con IA (Whisper). Descarga ~460 MB la primera vez.
+faster-whisper>=1.0

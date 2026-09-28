@@ -252,3 +252,14 @@ def test_audio_helpers(tmp_path):
         assert decoded.shape[0] == 2 and abs(decoded.shape[1] - 44100) < 2400
     peaks = audio_io.compute_peaks(audio)
     assert isinstance(peaks, str) and len(peaks) > 10
+
+
+def test_max_duration_is_enforced(tmp_path, song_data):
+    song, wav = song_data
+    cfg = Config(data_dir=tmp_path / "corta", frontend_dir=tmp_path / "x", max_duration_s=30)
+    app = create_app(cfg, separator=FakeSeparator(song.stems), analyzer=analyze_song)
+    with TestClient(app) as short_client:
+        created = upload(short_client, song_data)
+        result = wait_for(short_client, created["id"])
+    assert result["status"] == "error"
+    assert "máximo" in result["error"]

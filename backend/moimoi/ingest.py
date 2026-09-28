@@ -50,8 +50,8 @@ def guess_title_artist(info: dict) -> tuple[str, str | None]:
     track, artist = info.get("track"), info.get("artist") or info.get("creator")
     if track and artist:
         return clean_title(str(track)), str(artist).split(",")[0].strip()
-    title = str(info.get("title") or "Canción sin título")
-    for sep in (" - ", " – ", " — ", " | "):
+    title = _TRAILING_NOISE.sub("", str(info.get("title") or "Canción sin título")).strip() or "Canción sin título"
+    for sep in (" - ", " – ", " — "):
         if sep in title:
             left, right = title.split(sep, 1)
             if left.strip() and right.strip():

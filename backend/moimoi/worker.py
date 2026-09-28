@@ -208,7 +208,7 @@ class Worker:
             report(0.0, "Conectando…")
             info = ingest.download(song["source_url"], paths.root, report, should_cancel, self.cfg.max_duration_s)
             updates = {"source_url": info["url"]}
-            if song.get("meta", {}).get("auto_title", True):
+            if (song.get("meta") or {}).get("auto_title", True):
                 updates["title"] = info["title"]
                 if info.get("artist"):
                     updates["artist"] = info["artist"]

@@ -1,0 +1,14 @@
+# PyTorch (torch/torchaudio) lo instala iniciar.sh / iniciar.bat antes de esto,
+# eligiendo la versión con GPU NVIDIA (CUDA) o la de procesador según la computadora.
+demucs>=4.0.1
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+numpy>=1.24
+scipy>=1.10
+soundfile>=0.12
+librosa>=0.10.2
+yt-dlp[default]>=2025.10
+imageio-ffmpeg>=0.5
+pedalboard>=0.9
+lameenc>=1.4

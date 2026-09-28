@@ -16,3 +16,6 @@ data/
 # Sistema
 .DS_Store
 Thumbs.db
+
+# Capturas de la prueba del navegador
+capturas-prueba/
