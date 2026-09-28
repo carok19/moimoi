@@ -147,6 +147,10 @@ class Worker:
             with self._lock:
                 self._cancelled.discard(job_id)
             self._last_progress_write.pop(job_id, None)
+            # Si borraron la canción mientras se procesaba, no dejar archivos huérfanos.
+            song_id = job.get("song_id")
+            if song_id and job["kind"] in HEAVY_KINDS and self.db.get_song(song_id) is None:
+                SongPaths(self.cfg.songs_dir, song_id).remove()
 
     def _on_job_failed(self, job: dict, message: str | None, cancelled: bool) -> None:
         song_id = job.get("song_id")
