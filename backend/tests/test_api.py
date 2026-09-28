@@ -4,105 +4,18 @@ from __future__ import annotations
 
 import io
 import json
-import time
 import zipfile
-from urllib.parse import unquote
 
 import numpy as np
 import pytest
 import soundfile as sf
 from fastapi.testclient import TestClient
 
+from helpers import FakeSeparator, download_name, upload, wait_for, wait_job
 from moimoi import audio_io
 from moimoi.analysis import analyze_song
 from moimoi.app import create_app
 from moimoi.config import Config
-from moimoi.separation.base import Cancelled, assemble_preset_stems, model_for
-from synth import worship_song
-
-
-class FakeSeparator:
-    """Devuelve las pistas "reales" de la canción sintética (sin IA), para probar el flujo."""
-
-    name = "fake"
-
-    def __init__(self, stems: dict[str, np.ndarray]):
-        self.stems = stems
-        self.calls = 0
-
-    def status(self):
-        return {"available": True, "device": "cpu", "gpu": None, "detail": "Motor de prueba"}
-
-    def separate(self, audio, preset, quality, progress, should_cancel):
-        self.calls += 1
-        n = audio.shape[1]
-        for step in range(5):
-            if should_cancel():
-                raise Cancelled()
-            progress(step / 5, f"Separando… {step * 20}%")
-        sources = {k: np.ascontiguousarray(v[:, :n]) for k, v in self.stems.items()}
-        for k, v in sources.items():
-            if v.shape[1] < n:
-                sources[k] = np.pad(v, ((0, 0), (0, n - v.shape[1])))
-        return assemble_preset_stems(preset, sources), model_for(preset, quality)[0]
-
-
-@pytest.fixture(scope="module")
-def song_data():
-    song = worship_song(bpm=100.0)
-    mix = np.sum(list(song.stems.values()), axis=0)
-    mix = mix / max(1.0, float(np.max(np.abs(mix))) / 0.9)
-    buffer = io.BytesIO()
-    sf.write(buffer, mix.T, 44100, format="WAV", subtype="PCM_16")
-    return song, buffer.getvalue()
-
-
-@pytest.fixture()
-def client(tmp_path, song_data):
-    song, _ = song_data
-    cfg = Config(data_dir=tmp_path / "datos", frontend_dir=tmp_path / "no-hay-frontend", start_worker=True)
-    app = create_app(cfg, separator=FakeSeparator(song.stems), analyzer=analyze_song)
-    with TestClient(app) as test_client:
-        yield test_client
-
-
-def download_name(response) -> str:
-    """Nombre de archivo del encabezado Content-Disposition (filename* o filename)."""
-    header = response.headers["content-disposition"]
-    if "filename*=utf-8''" in header:
-        return unquote(header.split("filename*=utf-8''", 1)[1])
-    return header.split("filename=", 1)[1].strip('"')
-
-
-def wait_for(client: TestClient, song_id: str, timeout: float = 240) -> dict:
-    start = time.time()
-    while time.time() - start < timeout:
-        song = client.get(f"/api/songs/{song_id}").json()
-        if song["status"] in ("ready", "error", "cancelled"):
-            return song
-        time.sleep(0.3)
-    raise AssertionError("La canción no terminó de procesarse a tiempo")
-
-
-def wait_job(client: TestClient, job_id: str, timeout: float = 240) -> dict:
-    start = time.time()
-    while time.time() - start < timeout:
-        job = client.get(f"/api/jobs/{job_id}").json()
-        if job["status"] in ("done", "error", "cancelled"):
-            return job
-        time.sleep(0.3)
-    raise AssertionError("El trabajo no terminó a tiempo")
-
-
-def upload(client, song_data, preset="6stems", name="Cancion de prueba_demo.wav"):
-    _, wav = song_data
-    response = client.post(
-        "/api/songs/upload",
-        files={"file": (name, wav, "audio/wav")},
-        data={"preset": preset, "quality": "normal"},
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
 
 
 def test_health_and_presets(client):

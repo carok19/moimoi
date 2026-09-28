@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -10,7 +11,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from . import __version__, audio_io, exports, ingest, lyrics
+from . import __version__, audio_io, exports, guia, ingest, lyrics, multitrack, red
 from .db import Database
 from .separation.base import DEFAULT_PRESET, PRESETS, QUALITIES, STEMS, ordered_stems
 from .storage import SongPaths, new_id, read_json, write_json
@@ -481,6 +482,16 @@ class ExportRequest(BaseModel):
     tempo: float = Field(default=1.0, ge=0.25, le=4.0)
     semitones: int = Field(default=0, ge=-12, le=12)
     mixer: dict[str, dict] | None = None
+    #: Pista "Guía" con las voces que anuncian cada parte (solo multitrack).
+    guide: bool = False
+    #: "verses" = "Verso 1, Verso 2" pero "Coro" en cada coro; "all" = "Coro 1, Coro 2"; "none".
+    guideNumbering: Literal["verses", "all", "none"] = "verses"
+    #: Anunciar "Sube tono" / "Baja tono" donde la canción cambia de tonalidad.
+    guideKeyChanges: bool = True
+    #: Sonido del click: "moimoi" o un estilo del paquete de voces ("classic", "cowbell"…).
+    clickSound: str | None = Field(default=None, max_length=40)
+    #: Compases de cuenta antes de que empiece la canción (solo multitrack).
+    preRollBars: int = Field(default=0, ge=0, le=2)
 
 
 @router.post("/songs/{song_id}/exports")
@@ -570,6 +581,16 @@ DEFAULT_SETTINGS = {
     "countInBars": 1,
     "metronomeVolume": 0.7,
     "metronomeSound": "click",
+    # Exportación para Multitrack Alabanza
+    "multitrackUrl": multitrack.DEFAULT_URL,
+    "exportClick": True,
+    "exportGuide": True,
+    "exportPreRollBars": 1,
+    "exportClickSound": "moimoi",
+    "guideNumbering": "verses",
+    "guideKeyChanges": True,
+    # Celulares y tablets de la misma red
+    "lanAccess": True,
 }
 
 
@@ -586,8 +607,174 @@ def put_settings(request: Request, body: dict):
     if "band" in allowed and (not isinstance(allowed["band"], list)
                               or not all(isinstance(s, str) and s in STEMS for s in allowed["band"])):
         raise HTTPException(400, "Lista de instrumentos inválida")
+    if "multitrackUrl" in allowed:
+        try:
+            allowed["multitrackUrl"] = multitrack.normalize_url(str(allowed["multitrackUrl"]))
+        except multitrack.MultitrackError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    if "exportPreRollBars" in allowed and allowed["exportPreRollBars"] not in (0, 1, 2):
+        raise HTTPException(400, "La cuenta inicial es de 0, 1 o 2 compases")
+    if "guideNumbering" in allowed and allowed["guideNumbering"] not in ("verses", "all", "none"):
+        raise HTTPException(400, "Opción de numeración inválida")
+    if "exportClickSound" in allowed and not (isinstance(allowed["exportClickSound"], str)
+                                              and 0 < len(allowed["exportClickSound"]) <= 40):
+        raise HTTPException(400, "Sonido de click inválido")
+    if "lanAccess" in allowed:
+        allowed["lanAccess"] = bool(allowed["lanAccess"])
+        if not red.is_loopback(request.client.host if request.client else None):
+            raise HTTPException(403, "Solo se puede cambiar desde la computadora donde corre MoiMoi")
     _db(request).set_settings(allowed)
     return get_settings(request)
+
+
+# ---- voz guía --------------------------------------------------------------------------------
+
+
+def _kit(request: Request) -> guia.GuideKit:
+    return request.app.state.guide_kit
+
+
+@router.get("/guia")
+def get_guide(request: Request, set: str | None = None):  # noqa: A002 - nombre del parámetro en la URL
+    return _kit(request).describe(set)
+
+
+@router.post("/guia")
+async def upload_guide(request: Request, files: list[UploadFile] = File(...), cue: str | None = Form(None),
+                       set: str | None = Form(None)):  # noqa: A002
+    """Carga voces guía: archivos de audio sueltos, un .zip con el paquete completo (con varios
+    idiomas y sonidos de click), o una grabación hecha en la app (`cue` = a qué parte corresponde)."""
+    if cue is not None and cue not in guia.CUE_NAMES:
+        raise HTTPException(400, "Tipo de voz desconocido")
+    uploads: list[tuple[str, Path]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        total = 0
+        for index, upload in enumerate(files[: guia.MAX_FILES]):
+            name = Path(upload.filename or f"voz-{index}.wav").name
+            path = Path(tmp) / f"{index:04d}{Path(name).suffix.lower() or '.bin'}"
+            with open(path, "wb") as out:
+                while chunk := await upload.read(1024 * 1024):
+                    total += len(chunk)
+                    if total > 500 * 1024 * 1024:
+                        raise HTTPException(413, "Demasiado grande (máximo 500 MB en total)")
+                    out.write(chunk)
+            uploads.append((name, path))
+        try:
+            summary = _kit(request).import_files(uploads, forced_cue=cue, target_set=set)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    return {"summary": summary, **_kit(request).describe(set)}
+
+
+class GuideActive(BaseModel):
+    set: str
+
+
+@router.put("/guia/activo")
+def set_active_guide(request: Request, body: GuideActive):
+    try:
+        _kit(request).set_active(body.set)
+    except KeyError as exc:
+        raise HTTPException(404, "Ese idioma no existe") from exc
+    return _kit(request).describe()
+
+
+class GuideAssign(BaseModel):
+    cue: str | None = None
+
+
+@router.put("/guia/{file_id}")
+def assign_guide(request: Request, file_id: str, body: GuideAssign):
+    try:
+        _kit(request).assign(file_id, body.cue)
+    except KeyError as exc:
+        raise HTTPException(404, "Esa voz no existe") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return _kit(request).describe(request.query_params.get("set"))
+
+
+@router.delete("/guia/clicks/{style}")
+def delete_click_style(request: Request, style: str):
+    _kit(request).remove_clicks(style)
+    return _kit(request).describe()
+
+
+@router.delete("/guia/{file_id}")
+def delete_guide_file(request: Request, file_id: str):
+    _kit(request).remove(file_id)
+    return _kit(request).describe(request.query_params.get("set"))
+
+
+@router.delete("/guia")
+def clear_guide(request: Request, set: str | None = None):  # noqa: A002
+    """Borra un idioma (`?set=es`) o todo el paquete de voces."""
+    if set:
+        _kit(request).remove_set(set)
+    else:
+        _kit(request).clear()
+    return _kit(request).describe()
+
+
+@router.get("/guia/audio/{file_id}.wav")
+def guide_audio(request: Request, file_id: str):
+    path = _kit(request).audio_path(file_id)
+    if path is None:
+        raise HTTPException(404, "Esa voz no existe")
+    return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "max-age=31536000, immutable"})
+
+
+# ---- Multitrack Alabanza y red local ------------------------------------------------------------
+
+
+@router.get("/multitrack")
+def multitrack_status(request: Request, url: str | None = None):
+    target = url or get_settings(request)["multitrackUrl"]
+    try:
+        return multitrack.info(target)
+    except multitrack.MultitrackError as exc:
+        return {"ok": False, "url": target, "error": str(exc)}
+
+
+class SendRequest(BaseModel):
+    url: str | None = None
+
+
+@router.post("/jobs/{job_id}/enviar")
+def send_to_multitrack(request: Request, job_id: str, body: SendRequest | None = None):
+    """Manda una exportación (zip) directo a Multitrack Alabanza."""
+    job = _db(request).get_job(job_id)
+    if job is None or job["status"] != "done" or not job.get("result"):
+        raise HTTPException(404, "La exportación no está lista")
+    result = job["result"]
+    if not str(result.get("name", "")).lower().endswith(".zip"):
+        raise HTTPException(400, "Solo se pueden enviar paquetes .zip")
+    path = request.app.state.cfg.exports_dir / job_id / Path(result["file"]).name
+    if not path.exists():
+        raise HTTPException(410, "La exportación ya se borró; vuelve a exportar")
+    target = (body.url if body else None) or get_settings(request)["multitrackUrl"]
+    try:
+        return multitrack.send_zip(target, path, result["name"])
+    except multitrack.MultitrackError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@router.get("/red")
+def network_info(request: Request):
+    """Direcciones para abrir MoiMoi desde celulares y tablets de la misma red WiFi."""
+    cfg = request.app.state.cfg
+    listening_lan = cfg.host in ("0.0.0.0", "::")
+    ips = red.lan_addresses() if listening_lan else []
+    https_on = bool(request.app.state.https_port)
+    return {
+        "lanAccess": bool(get_settings(request)["lanAccess"]),
+        "listening": listening_lan,
+        "port": cfg.port,
+        "httpsPort": request.app.state.https_port,
+        "http": [f"http://{ip}:{cfg.port}" for ip in ips],
+        "https": [f"https://{ip}:{request.app.state.https_port}" for ip in ips] if https_on else [],
+        "local": red.is_loopback(request.client.host if request.client else None),
+    }
 
 
 @router.get("/")

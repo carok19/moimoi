@@ -297,6 +297,8 @@ def analyze_harmony(
     return {
         "key": {"tonic": int(tonic), "mode": mode, "name": key_name(tonic, mode),
                 "label": key_label(tonic, mode), "confidence": round(confidence, 2)},
+        "keyStart": {"tonic": int(final_regions[0]["key"][0]), "mode": final_regions[0]["key"][1],
+                     "name": key_name(*final_regions[0]["key"]), "label": key_label(*final_regions[0]["key"])},
         "keyChanges": key_changes,
         "tuning": {"a4": round(a4, 1), "cents": int(round(tuning * 100))},
         "chords": chords,

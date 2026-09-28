@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from . import __version__, api, exports, lyrics
+from . import __version__, api, exports, guia, lyrics, red
 from .config import Config, load_config
 from .db import Database
 from .worker import Worker
@@ -51,7 +53,10 @@ def create_app(
         analyzer = analyze_song
     if transcriber is None and lyrics.available():
         transcriber = lyrics.transcribe
-    worker = Worker(cfg, db, separator, analyzer, transcriber, exporter or exports.run_export)
+    guide_kit = guia.GuideKit(cfg.data_dir / "voz-guia")
+    if exporter is None:
+        exporter = functools.partial(exports.run_export, guide_kit=guide_kit)
+    worker = Worker(cfg, db, separator, analyzer, transcriber, exporter)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -69,7 +74,32 @@ def create_app(
     app.state.worker = worker
     app.state.separator = separator
     app.state.transcriber = transcriber
-    # Otras apps locales (p. ej. Multitrack Alabanza) pueden consultar la API desde el navegador.
+    app.state.guide_kit = guide_kit
+    app.state.https_port = None  # lo completa __main__ si arranca el servidor HTTPS
+
+    # Celulares y tablets: solo si "Permitir celulares" está activado (se consulta la base
+    # como mucho cada 2 segundos).
+    lan_cache = {"value": True, "at": 0.0}
+
+    def lan_allowed() -> bool:
+        now = time.monotonic()
+        if now - lan_cache["at"] > 2.0:
+            lan_cache["value"] = bool(db.get_settings().get("lanAccess", True))
+            lan_cache["at"] = now
+        return lan_cache["value"]
+
+    @app.middleware("http")
+    async def lan_gate(request: Request, call_next):
+        client = request.client.host if request.client else None
+        if not red.is_loopback(client) and not lan_allowed():
+            return JSONResponse(
+                {"detail": "MoiMoi no acepta conexiones desde otros equipos. En la computadora, activa "
+                           "Ajustes → Celulares → Permitir celulares."},
+                status_code=403,
+            )
+        return await call_next(request)
+
+    # Otras apps (Multitrack Alabanza, la app de Android) consultan la API desde otro origen.
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
                        expose_headers=["Content-Disposition"])
     app.include_router(api.router)

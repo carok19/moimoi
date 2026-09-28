@@ -30,8 +30,11 @@ def _env_path(name: str) -> Path | None:
 class Config:
     #: Carpeta donde se guardan la base de datos, las canciones y las exportaciones.
     data_dir: Path
-    host: str = "127.0.0.1"
+    #: 0.0.0.0 = también accesible desde celulares de la misma red (si está permitido en Ajustes).
+    host: str = "0.0.0.0"
     port: int = 4747
+    #: Puerto HTTPS para abrir MoiMoi desde el navegador del celular (None = sin HTTPS).
+    https_port: int | None = 4748
     #: 'auto' (GPU NVIDIA si hay, si no CPU), 'cpu', 'cuda' o 'mps' (Apple Silicon).
     device: str = "auto"
     #: Carpeta local con modelos de Demucs ya descargados (uso sin internet).
@@ -72,8 +75,9 @@ def load_config() -> Config:
     threads = os.environ.get("MOIMOI_TORCH_THREADS")
     return Config(
         data_dir=data_dir,
-        host=os.environ.get("MOIMOI_HOST", "127.0.0.1"),
+        host=os.environ.get("MOIMOI_HOST", "0.0.0.0"),
         port=int(os.environ.get("MOIMOI_PORT", "4747")),
+        https_port=(int(os.environ.get("MOIMOI_HTTPS_PORT", "4748")) or None),
         device=os.environ.get("MOIMOI_DEVICE", "auto").strip().lower(),
         model_repo=_env_path("MOIMOI_MODEL_REPO"),
         frontend_dir=frontend_dir,

@@ -69,6 +69,7 @@ def analyze_song(
         "beats": rhythm.get("beats", []),
         "downbeats": rhythm.get("downbeats", []),
         "key": key,
+        "keyStart": harmony.get("keyStart"),
         "keyChanges": harmony["keyChanges"],
         "tuning": harmony["tuning"],
         "chords": harmony["chords"],
