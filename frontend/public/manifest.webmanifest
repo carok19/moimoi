@@ -1,0 +1,10 @@
+{
+  "name": "MoiMoi — separador de pistas",
+  "short_name": "MoiMoi",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0e1014",
+  "theme_color": "#0e1014",
+  "lang": "es",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

@@ -1,0 +1,226 @@
+// Tipos de la API de MoiMoi (ver backend/moimoi/api.py).
+
+export type PresetId = '2stems' | '4stems' | '6stems'
+export type Quality = 'normal' | 'alta'
+export type SongStatus = 'queued' | 'downloading' | 'separating' | 'analyzing' | 'ready' | 'error' | 'cancelled'
+export type StemId = 'vocals' | 'drums' | 'bass' | 'guitar' | 'piano' | 'other' | 'instrumental'
+
+export interface StemInfo {
+  id: StemId
+  name: string
+  color: string
+  url: string
+}
+
+export interface SongSummary {
+  bpm: number | null
+  beatsPerBar: number
+  key: string
+  keyLabel: string
+  tonic: number
+  mode: 'major' | 'minor'
+  a4: number
+  instruments: StemId[]
+}
+
+export interface MixerChannel {
+  volume: number
+  pan: number
+  mute: boolean
+  solo: boolean
+}
+
+export interface Section {
+  start: number
+  end: number
+  label: string
+  group: string
+  bars?: number
+  vocals?: boolean
+}
+
+export interface SongSettings {
+  mixer?: Partial<Record<StemId, MixerChannel>>
+  tempo?: number
+  semitones?: number
+  cents?: number
+  loop?: { start: number; end: number } | null
+  loopOn?: boolean
+  sections?: Section[]
+  /** Corrección manual del pulso: 'double' | 'half' | null */
+  beatScale?: 'double' | 'half' | null
+  /** Desplaza el "1" del compás n pulsos. */
+  downbeatShift?: number
+  masterVolume?: number
+  [key: string]: unknown
+}
+
+export interface Song {
+  id: string
+  title: string
+  artist: string | null
+  sourceType: 'upload' | 'url'
+  sourceUrl: string | null
+  originalFilename: string | null
+  duration: number | null
+  preset: PresetId
+  presetName: string
+  quality: Quality
+  model: string | null
+  status: SongStatus
+  progress: number
+  stage: string | null
+  error: string | null
+  stems: StemInfo[]
+  summary: SongSummary | null
+  lyricsStatus: string | null
+  settings: SongSettings
+  thumbnailUrl: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Chord {
+  start: number
+  end: number
+  /** -1 = sin acorde */
+  root: number
+  quality: 'maj' | 'min' | '7' | 'maj7' | 'min7' | 'sus4' | 'sus2' | 'dim' | 'N'
+  bass: number | null
+  name: string
+}
+
+export interface KeyInfo {
+  tonic: number
+  mode: 'major' | 'minor'
+  name: string
+  label: string
+  confidence?: number
+}
+
+export interface InstrumentInfo {
+  presence: number
+  relativeDb: number
+  level: 'alta' | 'media' | 'baja' | 'ausente'
+  active: [number, number][]
+}
+
+export interface Analysis {
+  version: number
+  duration: number
+  tempo: { bpm: number | null; beatsPerBar: number; steady: boolean; confidence: number; meterConfidence: number }
+  beats: number[]
+  downbeats: number[]
+  key: KeyInfo
+  keyChanges: (KeyInfo & { time: number })[]
+  tuning: { a4: number; cents: number }
+  chords: Chord[]
+  sections: Section[]
+  instruments: Partial<Record<StemId, InstrumentInfo>>
+  summary: SongSummary
+}
+
+export interface Peaks {
+  perSecond: number
+  duration: number
+  peaks: Record<string, string>
+}
+
+export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+
+export interface Job {
+  id: string
+  songId: string | null
+  kind: 'process' | 'lyrics' | 'reanalyze' | 'export'
+  status: JobStatus
+  progress: number
+  message: string | null
+  error: string | null
+  result: { file: string; name: string; size: number; mime: string } | null
+  downloadUrl: string | null
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
+
+export interface Health {
+  ok: boolean
+  version: string
+  engine: { available: boolean; device: string | null; gpu?: string | null; detail: string }
+  features: { youtube: boolean; lyrics: boolean; stretchExport: boolean; ffmpeg: boolean }
+  dataDir: string
+}
+
+export interface PresetInfo {
+  id: PresetId
+  name: string
+  description: string
+  stems: StemId[]
+}
+
+export interface Presets {
+  default: PresetId
+  presets: PresetInfo[]
+  stems: { id: StemId; name: string; color: string }[]
+  qualities: { id: Quality; name: string; description: string }[]
+}
+
+export interface Settings {
+  defaultPreset: PresetId
+  defaultQuality: Quality
+  band: StemId[]
+  notation: 'american' | 'latin'
+  countInBars: number
+  metronomeVolume: number
+  metronomeSound: string
+}
+
+export interface SearchResult {
+  id: string
+  url: string
+  title: string
+  rawTitle: string | null
+  artist: string | null
+  channel: string | null
+  duration: number | null
+  thumbnail: string
+}
+
+export interface UrlInfo {
+  url: string
+  title: string
+  artist: string | null
+  duration: number | null
+  thumbnail: string | null
+}
+
+export interface LyricsWord {
+  start: number
+  end: number
+  text: string
+}
+
+export interface LyricsLine {
+  start: number
+  end: number
+  text: string
+  words: LyricsWord[]
+}
+
+export interface Lyrics {
+  language: string | null
+  model?: string
+  lines: LyricsLine[]
+  edited: boolean
+}
+
+export interface ExportRequest {
+  type: 'multitrack' | 'stems' | 'mix'
+  stems?: StemId[]
+  format?: 'wav' | 'mp3' | 'flac'
+  click?: boolean
+  clickVolume?: number
+  tempo?: number
+  semitones?: number
+  mixer?: Partial<Record<StemId, MixerChannel>>
+}
