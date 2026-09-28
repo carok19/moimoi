@@ -143,13 +143,17 @@ def chroma(y: np.ndarray, tuning: float, fmin_note: str, n_octaves: int) -> np.n
     )
 
 
-def onset_envelope(y: np.ndarray, fmax: float | None = None) -> np.ndarray:
+def onset_envelope(y: np.ndarray, fmax: float | None = None, fmin: float | None = None) -> np.ndarray:
     import librosa
 
-    kwargs = {"n_mels": 128}
-    if fmax is not None:
+    kwargs: dict = {"n_mels": 128}
+    if fmax is not None and fmax < 1000:
         # Banda grave: pocas bandas mel (con 128 quedarían filtros vacíos).
         kwargs.update(fmax=fmax, n_mels=16, n_fft=4096)
+    elif fmax is not None:
+        kwargs.update(fmax=fmax, n_mels=40)
+    if fmin is not None:
+        kwargs["fmin"] = fmin
     return librosa.onset.onset_strength(y=y, sr=ANALYSIS_SR, hop_length=HOP, aggregate=np.median, **kwargs)
 
 

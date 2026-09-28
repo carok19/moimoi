@@ -22,6 +22,14 @@ def parse_chord(name: str) -> tuple[int, str, tuple[int, ...]]:
     return NOTE[root], suffix, QUALITY[suffix]
 
 
+SHARPS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+
+def transpose_name(name: str, semitones: int) -> str:
+    root, suffix, _ = parse_chord(name)
+    return SHARPS[(root + semitones) % 12] + suffix
+
+
 def midi_hz(m: float) -> float:
     return 440.0 * 2 ** ((m - 69) / 12)
 
@@ -32,6 +40,8 @@ class Section:
     chords: list[str]  # un acorde por compás
     vocals: bool
     energy: float = 1.0
+    #: Semitonos para esta sección (p. ej. el último coro un tono más arriba).
+    transpose: int = 0
 
 
 @dataclass
@@ -107,8 +117,9 @@ def make_song(
             b0 = bar * beats_per_bar
             t0, t1 = beats[b0], beats[b0 + beats_per_bar]
             root, _, intervals = parse_chord(chord)
-            root = (root + transpose) % 12
-            chords_truth.append((float(t0), float(t1), chord))
+            shift = transpose + section.transpose
+            root = (root + shift) % 12
+            chords_truth.append((float(t0), float(t1), transpose_name(chord, shift)))
             for k in range(beats_per_bar):
                 bt = beats[b0 + k]
                 start = int(bt * SR)

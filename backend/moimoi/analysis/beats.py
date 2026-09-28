@@ -127,6 +127,28 @@ def estimate_meter_and_downbeats(
     return meter, phase, confidence
 
 
+def _at_beats(env: np.ndarray, beat_frames: np.ndarray) -> np.ndarray:
+    return np.array([env[max(0, f - 2): f + 3].max() if f < env.size else 0.0 for f in beat_frames])
+
+
+def half_time_phase(beat_frames: np.ndarray, kick_env: np.ndarray, snare_env: np.ndarray) -> int | None:
+    """Detecta el error típico de marcar el doble del tempo (una balada a 72 leída como 144).
+
+    En un ritmo de banda cada pulso real lleva bombo o redoblante (1 y 3 bombo, 2 y 4
+    redoblante). Si esos golpes caen solo en pulsos alternos y en los otros suena apenas
+    el hi-hat, el detector está contando corcheas: devolvemos la fase (0/1) de los pulsos
+    fuertes. None si el tempo parece correcto.
+    """
+    if beat_frames.size < 16:
+        return None
+    accents = _unit(_at_beats(kick_env, beat_frames)) + _unit(_at_beats(snare_env, beat_frames))
+    even, odd = float(accents[0::2].mean()), float(accents[1::2].mean())
+    strong, weak = max(even, odd), min(even, odd)
+    if strong > 0 and weak < 0.35 * strong:
+        return 0 if even >= odd else 1
+    return None
+
+
 def analyze_rhythm(sig: SongSignals, treble_chroma: np.ndarray, bass_chroma: np.ndarray) -> dict:
     import librosa
 
@@ -156,6 +178,15 @@ def analyze_rhythm(sig: SongSignals, treble_chroma: np.ndarray, bass_chroma: np.
     if beat_frames.size < 4:
         return {"bpm": round(tempo, 1) if tempo else None, "beats": [], "downbeats": [], "beatsPerBar": 4,
                 "steady": False, "confidence": 0.0}
+
+    if drums_ok and beat_frames.size >= 16:
+        period_s = float(np.median(np.diff(beat_frames))) * HOP / ANALYSIS_SR
+        if 60.0 / (2 * period_s) >= 50:  # no bajar de 50 BPM
+            kick_env = onset_envelope(sig.drums, fmax=160.0)
+            snare_env = onset_envelope(sig.drums, fmin=160.0, fmax=3000.0)
+            phase = half_time_phase(beat_frames, kick_env, snare_env)
+            if phase is not None:
+                beat_frames = beat_frames[phase::2]
 
     # Confianza del pulso: cuánto más fuerte es el ataque en los pulsos que en el resto.
     on_beat = env[np.clip(beat_frames, 0, env.size - 1)].mean()

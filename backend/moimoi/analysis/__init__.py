@@ -36,6 +36,12 @@ def analyze_song(
     harmony = analyze_harmony(treble_chroma, bass_chroma, rhythm, sig.duration, tuning)
     progress(0.75, "Detectando las partes de la canción…")
     sections = analyze_sections(sig, rhythm, treble_chroma)
+    # Un cambio de tonalidad casi siempre coincide con el comienzo de una sección.
+    starts = [s["start"] for s in sections[1:]]
+    for change in harmony["keyChanges"]:
+        near = [t for t in starts if abs(t - change["time"]) <= 10.0]
+        if near:
+            change["time"] = min(near, key=lambda t: abs(t - change["time"]))
     progress(0.9, "Detectando instrumentos…")
     instruments = analyze_presence(stems, sample_rate)
 

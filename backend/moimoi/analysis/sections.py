@@ -126,22 +126,34 @@ def _phrase_similarity(chroma: np.ndarray, local: np.ndarray, p: tuple[int, int]
                        sigma: float) -> float:
     lp, lq = p[1] - p[0], q[1] - q[0]
     k = min(lp, lq)
-    seq = float(np.mean([max(0.0, float(np.dot(chroma[p[0] + i], chroma[q[0] + i]))) for i in range(k)]))
+    a, b = chroma[p[0]: p[0] + k], chroma[q[0]: q[0] + k]
+    # Misma secuencia de acordes; también transportada ±1–3 semitonos (el último coro un
+    # tono más arriba sigue siendo el coro), con una pequeña penalización.
+    seq = -1.0
+    for shift in (0, 1, -1, 2, -2, 3, -3):
+        rolled = np.roll(b, shift, axis=1)
+        value = float(np.mean(np.maximum(0.0, np.sum(a * rolled, axis=1)))) - (0.06 if shift else 0.0)
+        seq = max(seq, value)
     d = float(np.linalg.norm(local[p[0]: p[1]].mean(axis=0) - local[q[0]: q[1]].mean(axis=0)))
     timbre = float(np.exp(-(d / sigma) ** 2))
     length = 1.0 - abs(lp - lq) / max(lp, lq)
     return 0.6 * seq + 0.3 * timbre + 0.1 * length
 
 
-def _cluster(phrases, chroma, local) -> list[int]:
+def _timbre_sigma(phrases, local) -> float:
     n = len(phrases)
     means = np.array([local[a:b].mean(axis=0) for a, b in phrases])
     dists = [np.linalg.norm(means[i] - means[j]) for i in range(n) for j in range(i + 1, n)]
-    sigma = float(np.median(dists)) if dists else 1.0
+    return (float(np.median(dists)) if dists else 1.0) or 1.0
+
+
+def _cluster(phrases, chroma, local) -> list[int]:
+    n = len(phrases)
+    sigma = _timbre_sigma(phrases, local)
     sim = np.eye(n)
     for i in range(n):
         for j in range(i + 1, n):
-            sim[i, j] = sim[j, i] = _phrase_similarity(chroma, local, phrases[i], phrases[j], sigma or 1.0)
+            sim[i, j] = sim[j, i] = _phrase_similarity(chroma, local, phrases[i], phrases[j], sigma)
     # Agrupamiento aglomerativo (enlace promedio) con umbral.
     clusters = [[i] for i in range(n)]
     while len(clusters) > 1:
@@ -163,7 +175,8 @@ def _cluster(phrases, chroma, local) -> list[int]:
     return labels
 
 
-def _merge(phrases: list[tuple[int, int]], labels: list[int]) -> tuple[list[tuple[int, int]], list[int]]:
+def _merge(phrases: list[tuple[int, int]], labels: list[int], energy: np.ndarray, vocal: np.ndarray,
+           similarity) -> tuple[list[tuple[int, int]], list[int]]:
     # 1) frases seguidas iguales -> una sección
     segments, groups = [], []
     for (a, b), g in zip(phrases, labels):
@@ -172,25 +185,37 @@ def _merge(phrases: list[tuple[int, int]], labels: list[int]) -> tuple[list[tupl
         else:
             segments.append((a, b))
             groups.append(g)
-    # 2) tipos que siempre aparecen juntos (X siempre seguido de Y) -> una sola parte
+    # 2) un tipo que siempre va seguido del mismo otro tipo y suena igual (mismo volumen, misma
+    #    voz, acordes parecidos) es la primera mitad de esa parte: p. ej. las dos frases de un
+    #    coro. No une un verso con el coro que le sigue (suenan distinto).
     changed = True
     while changed:
         changed = False
         for x in sorted(set(groups)):
             positions = [i for i, g in enumerate(groups) if g == x]
-            if len(positions) < 2 or any(i + 1 >= len(groups) for i in positions):
+            if any(i + 1 >= len(groups) for i in positions):
                 continue
             followers = {groups[i + 1] for i in positions}
             if len(followers) != 1:
                 continue
             y = followers.pop()
-            if y == x or groups.count(y) != len(positions):
+            if y == x or (len(positions) < 2 and groups.count(y) < 2):
                 continue
+            if any((segments[i + 1][1] - segments[i][0]) > 16 for i in positions):
+                continue
+            xs = np.concatenate([np.arange(*segments[i]) for i in positions])
+            ys = np.concatenate([np.arange(*segments[i + 1]) for i in positions])
+            if abs(float(energy[xs].mean() - energy[ys].mean())) > 1.5 \
+                    or abs(float(vocal[xs].mean() - vocal[ys].mean())) > 0.25:
+                continue
+            if np.mean([similarity(segments[i], segments[i + 1]) for i in positions]) < 0.72:
+                continue
+            target = y if groups.count(y) >= groups.count(x) else x
             new_segments, new_groups, i = [], [], 0
             while i < len(groups):
                 if groups[i] == x and i + 1 < len(groups) and groups[i + 1] == y:
                     new_segments.append((segments[i][0], segments[i + 1][1]))
-                    new_groups.append(x)
+                    new_groups.append(target)
                     i += 2
                 else:
                     new_segments.append(segments[i])
@@ -249,7 +274,9 @@ def analyze_sections(sig: SongSignals, rhythm: dict, treble_chroma: np.ndarray) 
     cuts = _strong_cuts(novelty, vocal, n_bars)
     phrases = _phrases(n_bars, cuts, chroma_bars)
     labels = _cluster(phrases, chroma_bars, local)
-    segments, groups = _merge(phrases, labels)
+    sigma = _timbre_sigma(phrases, local)
+    segments, groups = _merge(phrases, labels, energy, vocal,
+                              lambda p, q: _phrase_similarity(chroma_bars, local, p, q, sigma))
 
     seg_vocal = np.array([vocal[a:b].mean() for a, b in segments])
     seg_energy = np.array([energy[a:b].mean() for a, b in segments])
