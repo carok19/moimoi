@@ -12,7 +12,7 @@ import soundfile as sf
 
 from moimoi import exports, guia
 from moimoi.separation.base import SAMPLE_RATE
-from helpers import download_name, upload, wait_for, wait_job
+from helpers import VOICE_FREQS, download_name, make_pack, tone, upload, wait_for, wait_job, wav_bytes
 
 # Nombres como los de los paquetes que se descargan de los sitios de secuencias.
 PACK_NAMES = {
@@ -95,55 +95,10 @@ def test_cue_for_section_labels():
     assert guia.cue_for_label("Final", available) == "outro"
     assert guia.cue_for_label("Parte A", available) is None
     assert guia.cue_for_label("Sube tono", {"sube"}) is None  # las indicaciones no son partes
-
-
-def tone(freq: float, seconds: float = 0.25, sr: int = 48000, lead_silence: float = 0.0) -> np.ndarray:
-    t = np.arange(int(seconds * sr)) / sr
-    burst = 0.5 * np.sin(2 * np.pi * freq * t) * np.minimum(1, (seconds - t) / 0.02)
-    audio = np.concatenate([np.zeros(int(lead_silence * sr)), burst, np.zeros(int(0.5 * sr))])
-    return np.stack([audio, audio], axis=1)
-
-
-def wav_bytes(audio: np.ndarray, sr: int = 48000, subtype: str = "PCM_24") -> bytes:
-    buffer = io.BytesIO()
-    sf.write(buffer, audio, sr, format="WAV", subtype=subtype)
-    return buffer.getvalue()
-
-
-# Cada voz de prueba es un tono con su propia frecuencia, para reconocerla en la pista Guía.
-VOICE_FREQS = {
-    "Intro": 300, "Verso 1 (Verse 1)": 400, "Verso 2 (Verse 2)": 450, "Verso (Verse)": 500,
-    "Coro (Chorus)": 600, "Puente (Bridge)": 700, "Ending (Final)": 800, "Pre Coro (Pre Chorus)": 900,
-    "1": 1000, "2": 1100, "3": 1200, "4": 1300, "Key Change Up (Sube Tono)": 1500,
-}
-
-
-def make_pack(damaged: bool = True) -> bytes:
-    """Paquete con dos idiomas, sonidos de click, basura de Mac/Ableton y un archivo dañado."""
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for label, freq in VOICE_FREQS.items():
-            zf.writestr(f"Guide Pack/Spanish Guides/Song Sections/Spanish - {label}.wav", wav_bytes(tone(freq)))
-        zf.writestr("Guide Pack/English Guides/Song Sections/English Female - Chorus.wav", wav_bytes(tone(610)))
-        zf.writestr("Guide Pack/English Guides/Song Sections/English Female - 1.wav", wav_bytes(tone(1010)))
-        zf.writestr("Guide Pack/Click Tracks/New Click -  Classic-accents.wav",
-                    wav_bytes(tone(2500, 0.03, 44100), 44100, "PCM_16"))
-        zf.writestr("Guide Pack/Click Tracks/New Click -  Classic-quarter.wav",
-                    wav_bytes(tone(2000, 0.03, 44100), 44100, "PCM_16"))
-        zf.writestr("Guide Pack/Spanish Guides/Song Sections/Spanish - Solo.wav", wav_bytes(np.zeros((4800, 2))))
-        zf.writestr("Guide Pack/Spanish Guides/Song Sections/Spanish - 1.wav.asd", b"ableton")
-        zf.writestr("__MACOSX/Guide Pack/._Spanish - Intro.wav", b"mac")
-        zf.writestr("Guide Pack/Project/Samples/Processed/Freeze/Blank Accent.wav", wav_bytes(np.zeros((4800, 2))))
-        if damaged:
-            zf.writestr("Guide Pack/Spanish Guides/Song Sections/Spanish - Vamp.wav", wav_bytes(tone(1700)))
-    data = bytearray(buffer.getvalue())
-    if damaged:
-        # Como una descarga incompleta: un pedazo del archivo quedó en ceros.
-        with zipfile.ZipFile(io.BytesIO(bytes(data))) as zf:
-            info = zf.getinfo("Guide Pack/Spanish Guides/Song Sections/Spanish - Vamp.wav")
-        start = info.header_offset + 30 + len(info.filename) + 40
-        data[start:start + 2000] = bytes(2000)
-    return bytes(data)
+    assert guia.label_cues("Coro (última vez)") == ("coro", "ultimavez")
+    assert guia.label_cues("Puente - sube tono") == ("puente", "sube")
+    assert guia.label_cues("Verso 2 suave") == ("verso2", "suave")
+    assert guia.label_cues("Parte A") == (None, None)
 
 
 def test_import_pack_with_languages_clicks_and_damage(tmp_path):
@@ -204,7 +159,7 @@ def test_plan_guide_timing():
         {"start": 10.1, "label": "Verso 1"},
         {"start": 19.7, "label": "Coro 1"},
         {"start": 29.3, "label": "Verso 2", "guide": ""},  # sin voz (elegido a mano)
-        {"start": 38.9, "label": "Coro 2", "guideExtra": "ultimavez"},
+        {"start": 38.9, "label": "Coro 2 (última vez)"},
     ]
     timeline = exports.plan_timeline(exports.Grid(beats, [i % 4 == 0 for i in range(80)], 4, 100.0), 1.0, 1)
     assert timeline.pre_roll == pytest.approx(1.95)

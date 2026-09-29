@@ -1,5 +1,10 @@
-import { CheckCircle2, XCircle } from 'lucide-react'
-import type { PresetId, Quality, StemId } from '../api/types'
+import { useEffect, useState } from 'react'
+import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
+import { api } from '../api/client'
+import { apiUrl, isNativeApp, serverBase } from '../api/base'
+import type { MultitrackStatus, PresetId, Quality, StemId } from '../api/types'
+import { GuideVoices } from '../components/GuideVoices'
+import { PhoneAccess } from '../components/PhoneAccess'
 import { PresetPicker } from '../components/PresetPicker'
 import { useToast } from '../components/Toasts'
 import { useApp } from '../context'
@@ -17,6 +22,85 @@ function Feature({ ok, label, hint }: { ok: boolean; label: string; hint?: strin
   )
 }
 
+function MultitrackSettings() {
+  const { settings, saveSettings } = useApp()
+  const toast = useToast()
+  const [address, setAddress] = useState(settings.multitrackUrl)
+  const [status, setStatus] = useState<MultitrackStatus | null>(null)
+  const [checking, setChecking] = useState(false)
+  const save = (patch: Parameters<typeof saveSettings>[0]) => saveSettings(patch).catch((err) => toast.error(err))
+
+  useEffect(() => setAddress(settings.multitrackUrl), [settings.multitrackUrl])
+
+  const check = async (url?: string) => {
+    setChecking(true)
+    try {
+      setStatus(await api.multitrackStatus(url))
+    } catch (err) {
+      toast.error(err)
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  useEffect(() => {
+    void check()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const commit = async () => {
+    if (!address.trim() || address.trim() === settings.multitrackUrl) return
+    await save({ multitrackUrl: address.trim() })
+    void check()
+  }
+
+  return (
+    <>
+      <div className="small muted">
+        <b>Exportar → Multitrack</b> arma un .zip con una pista por instrumento, el <b>Click</b>, la <b>Guía</b> y las partes de
+        la canción (se abren como marcadores). Con <b>Enviar a Multitrack Alabanza</b> la canción se abre directo en el
+        programa, sin copiar archivos. También puedes compartir el .zip por WhatsApp.
+      </div>
+      <div className="row wrap">
+        <span className="grow">Dirección de Multitrack Alabanza</span>
+        <input className="input" style={{ maxWidth: 260 }} value={address} onChange={(e) => setAddress(e.target.value)}
+          onBlur={() => void commit()} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+          aria-label="Dirección de Multitrack Alabanza" spellCheck={false} />
+        <button className="btn small" disabled={checking} onClick={() => void check(address)}>
+          {checking && <Loader2 size={14} className="spin" />}Probar
+        </button>
+      </div>
+      {status && (
+        <div className="row small" style={{ gap: 8 }}>
+          <span className={`dot${status.ok ? '' : ' err'}`} />
+          {status.ok ? `Multitrack Alabanza está abierto${status.bloqueado ? ' (bloqueado: solo acepta canciones desde su computadora)' : ''}.`
+            : `${status.error ?? 'No responde'}. Si está en la misma computadora, deja http://127.0.0.1:4848.`}
+        </div>
+      )}
+      <div className="small muted">Al exportar para Multitrack, por defecto:</div>
+      <label className="toggle">
+        <input type="checkbox" checked={settings.exportClick} onChange={(e) => void save({ exportClick: e.target.checked })} />
+        <span className="track" />
+        <span>Incluir la pista de Click</span>
+      </label>
+      <label className="toggle">
+        <input type="checkbox" checked={settings.exportGuide} onChange={(e) => void save({ exportGuide: e.target.checked })} />
+        <span className="track" />
+        <span>Incluir la pista Guía (voz que anuncia las partes)</span>
+      </label>
+      <div className="row wrap">
+        <span className="grow">Cuenta antes de empezar</span>
+        <div className="segmented">
+          {[0, 1, 2].map((bars) => (
+            <button key={bars} className={settings.exportPreRollBars === bars ? 'active' : ''}
+              onClick={() => void save({ exportPreRollBars: bars })}>{bars === 0 ? 'Sin cuenta' : bars === 1 ? '1 compás' : '2 compases'}</button>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}
+
 export function SettingsPage() {
   const { settings, saveSettings, health } = useApp()
   const toast = useToast()
@@ -25,7 +109,7 @@ export function SettingsPage() {
     const band = settings.band.includes(id) ? settings.band.filter((s) => s !== id) : [...settings.band, id]
     void save({ band })
   }
-  const origin = window.location.origin
+  const origin = isNativeApp ? serverBase() : window.location.origin
 
   return (
     <main className="page">
@@ -46,6 +130,21 @@ export function SettingsPage() {
               </label>
             ))}
           </div>
+        </section>
+
+        <section className="card">
+          <h2>Voz guía y click</h2>
+          <GuideVoices />
+        </section>
+
+        <section className="card">
+          <h2>Multitrack Alabanza (AI Tracks)</h2>
+          <MultitrackSettings />
+        </section>
+
+        <section className="card">
+          <h2>Celulares y tablets</h2>
+          <PhoneAccess />
         </section>
 
         <section className="card">
@@ -98,18 +197,14 @@ export function SettingsPage() {
         </section>
 
         <section className="card">
-          <h2>Conectar con Multitrack Alabanza (AI Tracks)</h2>
-          <div className="small muted">
-            Desde cualquier canción, <b>Exportar → Multitrack</b> genera un .zip con una pista WAV por instrumento (+ click
-            y marcadores) que se abre directamente en Multitrack Alabanza con <i>Cargar canción (.zip)</i>.
-          </div>
+          <h2>API para otras apps</h2>
           <div className="small muted">Otras apps pueden usar la API de MoiMoi en esta dirección:</div>
           <code className="block">{`${origin}/api/songs                         lista de canciones
 ${origin}/api/songs/{id}                    detalle (pistas, tonalidad, BPM)
 ${origin}/api/songs/{id}/analysis           acordes, secciones, pulsos
 ${origin}/api/songs/{id}/download/{pista}.wav  pista: vocals, drums, bass, guitar, piano, other
-POST ${origin}/api/songs/{id}/exports       {"type": "multitrack", "click": true}`}</code>
-          <a href="/docs" target="_blank" rel="noopener" className="small">Documentación completa de la API</a>
+POST ${origin}/api/songs/{id}/exports       {"type": "multitrack", "click": true, "guide": true}`}</code>
+          <a href={apiUrl('/docs')} target="_blank" rel="noopener" className="small">Documentación completa de la API</a>
         </section>
       </div>
     </main>

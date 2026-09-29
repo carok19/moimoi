@@ -261,14 +261,34 @@ def classify_click(path: str) -> tuple[str, str, str] | None:
     return None
 
 
+def label_cues(label: str) -> tuple[str | None, str | None]:
+    """(parte, indicación) que nombra una parte de la canción: "Coro (última vez)" ->
+    ("coro", "ultimavez"); "Puente sube tono" -> ("puente", "sube"); "Verso 2" -> ("verso2", None)."""
+    text = re.sub(r"\s+", " ", _NOISE.sub(" ", normalize(label))).strip()
+    part = extra = None
+    for pattern, cue in _RULES:
+        match = pattern.search(text)
+        if not match:
+            continue
+        if "{0}" in cue:
+            numbered = cue.format(match.group(1))
+            cue = numbered if numbered in CUE_NAMES else cue.replace("{0}", "")
+        group = CUE_GROUPS.get(cue)
+        if group == PARTES and part is None:
+            part = cue
+        elif group == INDICACIONES and extra is None:
+            extra = cue
+    return part, extra
+
+
 def cue_for_label(label: str, available: set[str], numbering: str = "verses") -> str | None:
     """Voz a usar para una parte de la canción.
 
     numbering: "verses" = número solo en los versos ("Verso 2", pero "Coro" en cada coro),
     "all" = número en todas las partes que lo tengan ("Coro 2"), "none" = nunca.
     """
-    cue = classify(label)
-    if cue is None or CUE_GROUPS.get(cue) != PARTES:
+    cue = label_cues(label)[0]
+    if cue is None:
         return None
     base = re.sub(r"\d+$", "", cue)
     candidates = [cue]
@@ -680,7 +700,8 @@ def plan_guide(
     """Dónde va cada voz. `to_output(t)` pasa de segundos de la canción a segundos de la pista.
 
     Cada parte se anuncia en el primer pulso del compás anterior. `extras` = {número de parte:
-    indicación} ("Sube tono", "Última vez"…), que suena un compás antes del nombre de la parte.
+    indicación} ("Sube tono" donde cambia la tonalidad), que suena un compás antes del nombre de
+    la parte. El nombre de la parte también puede traer una indicación ("Coro (última vez)").
     Cada parte puede traer `guide` (voz elegida a mano; "" = sin voz) y `guideExtra`.
     """
     placements: list[Placement] = []
@@ -729,7 +750,7 @@ def plan_guide(
             cue = chosen if chosen in available else None
         else:
             cue = cue_for_label(label, available, numbering)
-        extra = section.get("guideExtra") or extras.get(index)
+        extra = section.get("guideExtra") or label_cues(label)[1] or extras.get(index)
         if extra not in available:
             extra = None
         if start < bar * 0.75:

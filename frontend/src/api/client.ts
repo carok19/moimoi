@@ -1,6 +1,7 @@
+import { apiUrl, isNativeApp } from './base'
 import type {
-  Analysis, ExportRequest, Health, Job, Lyrics, LyricsLine, Peaks, PresetId, Presets, Quality, SearchResult,
-  Settings, Song, SongSettings, UrlInfo,
+  Analysis, ExportRequest, GuideKit, GuideUploadResult, Health, Job, Lyrics, LyricsLine, MultitrackStatus,
+  NetworkInfo, Peaks, PresetId, Presets, Quality, SearchResult, SendResult, Settings, Song, SongSettings, UrlInfo,
 } from './types'
 
 export class ApiError extends Error {
@@ -23,12 +24,16 @@ async function parseError(response: Response): Promise<ApiError> {
   return new ApiError(message, response.status)
 }
 
+const OFFLINE = isNativeApp
+  ? 'No se pudo conectar con MoiMoi. ¿Está abierto en la computadora y el celular está en la misma red WiFi?'
+  : 'No se pudo conectar con MoiMoi. ¿Está abierto el programa?'
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(path, init)
+    response = await fetch(apiUrl(path), init)
   } catch {
-    throw new ApiError('No se pudo conectar con MoiMoi. ¿Está abierto el programa?', 0)
+    throw new ApiError(OFFLINE, 0)
   }
   if (!response.ok) throw await parseError(response)
   return (await response.json()) as T
@@ -74,35 +79,63 @@ export const api = {
   cancelJob: (id: string) => request<Job>(`/api/jobs/${id}/cancel`, { method: 'POST' }),
   activeJobs: () => request<Job[]>('/api/jobs?active=true'),
 
+  guide: (set?: string | null) => request<GuideKit>(`/api/guia${set ? `?set=${encodeURIComponent(set)}` : ''}`),
+  setGuideActive: (set: string) => request<GuideKit>('/api/guia/activo', json('PUT', { set })),
+  assignGuide: (fileId: string, cue: string | null, set?: string | null) =>
+    request<GuideKit>(`/api/guia/${fileId}${set ? `?set=${encodeURIComponent(set)}` : ''}`, json('PUT', { cue })),
+  deleteGuideFile: (fileId: string, set?: string | null) =>
+    request<GuideKit>(`/api/guia/${fileId}${set ? `?set=${encodeURIComponent(set)}` : ''}`, { method: 'DELETE' }),
+  deleteGuideSet: (set: string) => request<GuideKit>(`/api/guia?set=${encodeURIComponent(set)}`, { method: 'DELETE' }),
+  deleteClickStyle: (style: string) => request<GuideKit>(`/api/guia/clicks/${encodeURIComponent(style)}`, { method: 'DELETE' }),
+  /** Sube voces guía (un .zip con el paquete, audios sueltos o una grabación) con progreso. */
+  uploadGuide(files: File[], options: { cue?: string; set?: string | null } = {},
+    onProgress?: (fraction: number) => void): Promise<GuideUploadResult> {
+    const form = new FormData()
+    for (const file of files) form.append('files', file)
+    if (options.cue) form.append('cue', options.cue)
+    if (options.set) form.append('set', options.set)
+    return sendForm<GuideUploadResult>('/api/guia', form, onProgress, 'No se pudieron cargar las voces')
+  },
+
+  multitrackStatus: (url?: string) =>
+    request<MultitrackStatus>(`/api/multitrack${url ? `?url=${encodeURIComponent(url)}` : ''}`),
+  sendToMultitrack: (jobId: string, url?: string) => request<SendResult>(`/api/jobs/${jobId}/enviar`, json('POST', { url })),
+  network: () => request<NetworkInfo>('/api/red'),
+
   /** Sube un archivo con progreso (fetch no informa el avance de la subida). */
   upload(file: File, preset: PresetId, quality: Quality, onProgress?: (fraction: number) => void): Promise<Song> {
-    return new Promise((resolve, reject) => {
-      const form = new FormData()
-      form.append('file', file)
-      form.append('preset', preset)
-      form.append('quality', quality)
-      const xhr = new XMLHttpRequest()
-      xhr.open('POST', '/api/songs/upload')
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total)
-      }
-      xhr.onload = () => {
-        let data: unknown = null
-        try {
-          data = JSON.parse(xhr.responseText)
-        } catch {
-          // respuesta vacía
-        }
-        if (xhr.status >= 200 && xhr.status < 300) resolve(data as Song)
-        else {
-          const detail = (data as { detail?: unknown })?.detail
-          reject(new ApiError(typeof detail === 'string' ? detail : `Error ${xhr.status}`, xhr.status))
-        }
-      }
-      xhr.onerror = () => reject(new ApiError('No se pudo subir el archivo', 0))
-      xhr.send(form)
-    })
+    const form = new FormData()
+    form.append('file', file)
+    form.append('preset', preset)
+    form.append('quality', quality)
+    return sendForm<Song>('/api/songs/upload', form, onProgress, 'No se pudo subir el archivo')
   },
+}
+
+function sendForm<T>(path: string, form: FormData, onProgress: ((fraction: number) => void) | undefined,
+  failure: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', apiUrl(path))
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) onProgress(event.loaded / event.total)
+    }
+    xhr.onload = () => {
+      let data: unknown = null
+      try {
+        data = JSON.parse(xhr.responseText)
+      } catch {
+        // respuesta vacía
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data as T)
+      else {
+        const detail = (data as { detail?: unknown })?.detail
+        reject(new ApiError(typeof detail === 'string' ? detail : `Error ${xhr.status}`, xhr.status))
+      }
+    }
+    xhr.onerror = () => reject(new ApiError(xhr.status ? failure : OFFLINE, xhr.status))
+    xhr.send(form)
+  })
 }
 
 /** Espera a que un trabajo termine, informando el avance. */
@@ -114,15 +147,4 @@ export async function waitForJob(id: string, onUpdate?: (job: Job) => void, sign
     if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') return job
     await new Promise((r) => setTimeout(r, 700))
   }
-}
-
-/** Descarga un archivo del servidor (sin salir de la página). */
-export function download(url: string): void {
-  const a = document.createElement('a')
-  a.href = url
-  a.rel = 'noopener'
-  a.download = ''
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
 }

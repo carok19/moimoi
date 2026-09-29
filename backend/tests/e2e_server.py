@@ -20,7 +20,7 @@ import uvicorn  # noqa: E402
 from moimoi.config import REPO_DIR, Config  # noqa: E402
 from moimoi.app import create_app  # noqa: E402
 from synth import worship_song  # noqa: E402
-from test_api import FakeSeparator  # noqa: E402
+from helpers import FakeSeparator, make_pack  # noqa: E402
 
 
 def main() -> None:
@@ -28,7 +28,10 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=4799)
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--wav", type=Path, help="Además, guardar la mezcla sintética en este WAV (para subirla)")
+    parser.add_argument("--pack", type=Path, help="Además, guardar un paquete de voces guía de prueba (.zip)")
     args = parser.parse_args()
+    if args.pack:
+        args.pack.write_bytes(make_pack(damaged=True))
     song = worship_song(bpm=100.0)
     if args.wav:
         mix = sum(song.stems.values())

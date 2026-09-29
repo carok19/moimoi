@@ -165,6 +165,8 @@ export interface Presets {
   qualities: { id: Quality; name: string; description: string }[]
 }
 
+export type GuideNumbering = 'verses' | 'all' | 'none'
+
 export interface Settings {
   defaultPreset: PresetId
   defaultQuality: Quality
@@ -173,6 +175,16 @@ export interface Settings {
   countInBars: number
   metronomeVolume: number
   metronomeSound: string
+  /** Dirección de Multitrack Alabanza (por defecto la misma computadora). */
+  multitrackUrl: string
+  exportClick: boolean
+  exportGuide: boolean
+  exportPreRollBars: number
+  /** "moimoi" o un estilo de click del paquete de voces. */
+  exportClickSound: string
+  guideNumbering: GuideNumbering
+  guideKeyChanges: boolean
+  lanAccess: boolean
 }
 
 export interface SearchResult {
@@ -220,7 +232,100 @@ export interface ExportRequest {
   format?: 'wav' | 'mp3' | 'flac'
   click?: boolean
   clickVolume?: number
+  clickSound?: string
   tempo?: number
   semitones?: number
   mixer?: Partial<Record<StemId, MixerChannel>>
+  guide?: boolean
+  guideNumbering?: GuideNumbering
+  guideKeyChanges?: boolean
+  preRollBars?: number
+}
+
+// ---- voz guía -----------------------------------------------------------------------------
+
+export type CueGroup = 'partes' | 'cuenta' | 'indicaciones'
+
+export interface GuideCue {
+  id: string
+  name: string
+  group: CueGroup
+  file: string | null
+}
+
+export interface GuideFile {
+  id: string
+  original: string | null
+  cue: string | null
+  duration: number | null
+  url: string
+}
+
+export interface GuideSet {
+  id: string
+  name: string
+  files: number
+  assigned: number
+  active: boolean
+}
+
+export type ClickRole = 'accent' | 'beat' | 'eighth' | 'sixteenth'
+
+export interface ClickStyle {
+  id: string
+  name: string
+  sounds: Partial<Record<ClickRole, string>>
+}
+
+export interface GuideKit {
+  active: string | null
+  set: string | null
+  sets: GuideSet[]
+  cues: GuideCue[]
+  files: GuideFile[]
+  count: number
+  missing: string[]
+  clicks: ClickStyle[]
+}
+
+export interface GuideImportSummary {
+  added: number
+  recognized: number
+  clicks: number
+  sets: string[]
+  errors: { original: string; error: string }[]
+  skipped: { original: string; skipped: string }[]
+}
+
+export interface GuideUploadResult extends GuideKit {
+  summary: GuideImportSummary
+}
+
+// ---- red local y Multitrack Alabanza ----------------------------------------------------------
+
+export interface NetworkInfo {
+  lanAccess: boolean
+  listening: boolean
+  port: number
+  httpsPort: number | null
+  http: string[]
+  https: string[]
+  /** ¿La consulta viene de la misma computadora donde corre MoiMoi? */
+  local: boolean
+}
+
+export interface MultitrackStatus {
+  ok: boolean
+  url: string
+  bloqueado?: boolean
+  error?: string
+}
+
+export interface SendResult {
+  ok: boolean
+  proyectoId: string
+  nombre: string
+  pistas: number
+  marcadores: number
+  activada: boolean
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 import { ArrowLeft, ExternalLink, Loader2, MoreHorizontal, Package, RefreshCw, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
+import { apiUrl } from '../api/base'
 import type { Analysis, MixerChannel, Peaks, Section, Song, StemId } from '../api/types'
 import { decodePeaks } from '../audio/peaks'
 import { StemPlayer, type LoopRange } from '../audio/StemPlayer'
@@ -81,7 +82,7 @@ export function PlayerPage({ songId }: { songId: string }) {
         setMasterVolume(typeof st.masterVolume === 'number' ? st.masterVolume : 1)
         created = StemPlayer.create()
         await created.load(
-          s.stems.map((x) => ({ id: x.id, name: x.name, url: x.url })),
+          s.stems.map((x) => ({ id: x.id, name: x.name, url: apiUrl(x.url) })),
           st.mixer ?? {},
           (fraction, message) => !cancelled && setLoading({ fraction, message }),
           abort.signal,
@@ -319,7 +320,7 @@ export function PlayerPage({ songId }: { songId: string }) {
       <div className="player-head">
         <a className="btn ghost icon" href="#/" aria-label="Volver a la biblioteca"><ArrowLeft size={18} /></a>
         {song.thumbnailUrl
-          ? <img className="thumb" src={song.thumbnailUrl} alt="" />
+          ? <img className="thumb" src={apiUrl(song.thumbnailUrl)} alt="" />
           : <div className="thumb">{song.title.slice(0, 1).toUpperCase()}</div>}
         <div className="grow" style={{ minWidth: 200 }}>
           <input className="title-edit" defaultValue={song.title} key={`t-${song.updatedAt}`} aria-label="Título"

@@ -1,7 +1,11 @@
+import { useEffect, useState } from 'react'
 import { Cpu, Zap } from 'lucide-react'
+import { isNativeApp, serverBase } from './api/base'
 import { AppProvider, useApp } from './context'
-import { useHashRoute } from './hooks/useHashRoute'
+import { navigate, useHashRoute } from './hooks/useHashRoute'
+import { startNative } from './native'
 import { ToastProvider } from './components/Toasts'
+import { ConnectPage } from './pages/ConnectPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { PlayerPage } from './pages/PlayerPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -43,7 +47,7 @@ function Shell() {
           <div className="spacer" />
           <EnginePill />
         </header>
-        {route.name === 'library' && <LibraryPage />}
+        {(route.name === 'library' || route.name === 'connect') && <LibraryPage />}
         {route.name === 'player' && <PlayerPage key={route.id} songId={route.id} />}
         {route.name === 'settings' && <SettingsPage />}
       </div>
@@ -52,8 +56,22 @@ function Shell() {
 }
 
 export function App() {
+  const route = useHashRoute()
+  const [server, setServer] = useState(serverBase())
+
+  useEffect(() => startNative(), [])
+
+  // App de Android sin computadora elegida (o pidiendo cambiarla): pantalla para conectar.
+  if (isNativeApp && (!server || route.name === 'connect')) {
+    return (
+      <ConnectPage
+        onConnected={(url) => { setServer(url); navigate('#/') }}
+        onCancel={server ? () => navigate('#/ajustes') : undefined}
+      />
+    )
+  }
   return (
-    <AppProvider>
+    <AppProvider key={server}>
       <Shell />
     </AppProvider>
   )

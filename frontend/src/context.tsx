@@ -10,6 +10,14 @@ export const DEFAULT_SETTINGS: Settings = {
   countInBars: 1,
   metronomeVolume: 0.7,
   metronomeSound: 'click',
+  multitrackUrl: 'http://127.0.0.1:4848',
+  exportClick: true,
+  exportGuide: true,
+  exportPreRollBars: 1,
+  exportClickSound: 'moimoi',
+  guideNumbering: 'verses',
+  guideKeyChanges: true,
+  lanAccess: true,
 }
 
 interface AppData {

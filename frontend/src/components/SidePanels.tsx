@@ -30,7 +30,10 @@ export function SectionsPanel({ player, sections, edited, loop, loopOn, onSeek, 
         <h3 className="grow">Partes de la canción</h3>
         {edited && <button className="btn ghost small" onClick={onReset} title="Volver a los nombres detectados"><RotateCcw size={13} /></button>}
       </div>
-      <div className="tiny faint" style={{ marginTop: 4 }}>Clic en el nombre para cambiarlo. Se exportan como marcadores.</div>
+      <div className="tiny faint" style={{ marginTop: 4 }}>
+        Clic en el nombre para cambiarlo. Se exportan como marcadores y la voz guía los anuncia (por ejemplo
+        "Coro (última vez)" o "Puente sube tono").
+      </div>
       <div className="section-list">
         {sections.map((s, i) => {
           const looping = !!(loop && loopOn && Math.abs(loop.start - s.start) < 0.05 && Math.abs(loop.end - s.end) < 0.05)

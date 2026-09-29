@@ -1,5 +1,6 @@
 import { MoreHorizontal, Play, RotateCcw, Trash2, X } from 'lucide-react'
 import { api } from '../api/client'
+import { apiUrl } from '../api/base'
 import type { PresetId, Quality, Song } from '../api/types'
 import { useApp } from '../context'
 import { navigate } from '../hooks/useHashRoute'
@@ -74,7 +75,7 @@ export function SongCard({ song, onChange }: { song: Song; onChange: () => void 
         )}
       </Menu>
       <div className="cover">
-        {song.thumbnailUrl ? <img src={song.thumbnailUrl} alt="" loading="lazy" /> : initials(song.title)}
+        {song.thumbnailUrl ? <img src={apiUrl(song.thumbnailUrl)} alt="" loading="lazy" /> : initials(song.title)}
         <div className="shade" />
         {song.duration ? <span className="duration">{formatTime(song.duration)}</span> : null}
       </div>

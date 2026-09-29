@@ -11,7 +11,7 @@ type Tab = 'link' | 'search' | 'upload'
 
 const URL_RE = /https?:\/\/[^\s]+/g
 
-export function AddSongPanel({ onAdded }: { onAdded: () => void }) {
+export function AddSongPanel({ onAdded, sharedLink }: { onAdded: () => void; sharedLink?: string | null }) {
   const { settings, health } = useApp()
   const toast = useToast()
   const [tab, setTab] = useState<Tab>('link')
@@ -27,6 +27,10 @@ export function AddSongPanel({ onAdded }: { onAdded: () => void }) {
   }, [settings.defaultPreset, settings.defaultQuality])
 
   const youtube = health?.features.youtube ?? true
+
+  useEffect(() => {
+    if (sharedLink) setTab('link')
+  }, [sharedLink])
 
   return (
     <section className="card add-card" aria-label="Agregar canción">
@@ -51,7 +55,7 @@ export function AddSongPanel({ onAdded }: { onAdded: () => void }) {
         </div>
       )}
 
-      {tab === 'link' && <LinkTab preset={preset} quality={quality} onAdded={onAdded} disabled={!youtube} />}
+      {tab === 'link' && <LinkTab preset={preset} quality={quality} onAdded={onAdded} disabled={!youtube} initial={sharedLink} />}
       {tab === 'search' && <SearchTab preset={preset} quality={quality} onAdded={onAdded} disabled={!youtube} />}
       {tab === 'upload' && <UploadTab preset={preset} quality={quality} onAdded={onAdded} />}
 
@@ -70,11 +74,15 @@ interface TabProps {
   quality: Quality
   onAdded: () => void
   disabled?: boolean
+  initial?: string | null
 }
 
-function LinkTab({ preset, quality, onAdded, disabled }: TabProps) {
+function LinkTab({ preset, quality, onAdded, disabled, initial }: TabProps) {
   const toast = useToast()
-  const [text, setText] = useState('')
+  const [text, setText] = useState(initial ?? '')
+  useEffect(() => {
+    if (initial) setText(initial)
+  }, [initial])
   const [info, setInfo] = useState<UrlInfo | null>(null)
   const [checking, setChecking] = useState(false)
   const [busy, setBusy] = useState(false)

@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
 import { X } from 'lucide-react'
+import { pushBackHandler } from '../native'
 
 interface Props {
   title: ReactNode
@@ -15,7 +16,11 @@ export function Modal({ title, onClose, children, footer, width }: Props) {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const removeBack = pushBackHandler(onClose) // botón "atrás" de Android
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      removeBack()
+    }
   }, [onClose])
   return (
     <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

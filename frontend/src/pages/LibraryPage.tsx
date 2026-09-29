@@ -1,16 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Search } from 'lucide-react'
+import { Search, Smartphone } from 'lucide-react'
 import { api } from '../api/client'
+import { isNativeApp, serverBase } from '../api/base'
 import type { Song } from '../api/types'
 import { AddSongPanel } from '../components/AddSongPanel'
 import { SongCard } from '../components/SongCard'
 import { useToast } from '../components/Toasts'
 import { useApp } from '../context'
+import { hashParams, navigate } from '../hooks/useHashRoute'
 
 const PROCESSING = new Set(['queued', 'downloading', 'separating', 'analyzing'])
 
 function EngineBanner() {
   const { health, offline } = useApp()
+  if (offline && isNativeApp) {
+    return (
+      <div className="banner err">
+        <div className="stack" style={{ gap: 8 }}>
+          <b>No hay conexión con MoiMoi en {serverBase().replace(/^https?:\/\//, '')}.</b>
+          <div className="small muted">Revisa que MoiMoi esté abierto en la computadora y que el celular esté en la misma red WiFi.</div>
+          <button className="btn small" style={{ alignSelf: 'flex-start' }} onClick={() => navigate('#/conectar')}>
+            <Smartphone size={14} />Cambiar de computadora
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (offline) {
     return (
       <div className="banner err">
@@ -49,7 +64,22 @@ export function LibraryPage() {
   const toast = useToast()
   const [songs, setSongs] = useState<Song[] | null>(null)
   const [filter, setFilter] = useState('')
+  const [sharedLink, setSharedLink] = useState<string | null>(() => hashParams().get('link'))
   const failures = useRef(0)
+
+  // Link compartido desde otra app (YouTube → Compartir → MoiMoi) o abierto con #/?link=…
+  useEffect(() => {
+    const onHash = () => {
+      const link = hashParams().get('link')
+      if (link) setSharedLink(link)
+    }
+    onHash()
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+  useEffect(() => {
+    if (sharedLink && hashParams().get('link')) window.history.replaceState(null, '', '#/')
+  }, [sharedLink])
 
   const refresh = useCallback(async () => {
     try {
@@ -82,7 +112,7 @@ export function LibraryPage() {
   return (
     <main className="page">
       <EngineBanner />
-      <AddSongPanel onAdded={() => void refresh()} />
+      <AddSongPanel onAdded={() => void refresh()} sharedLink={sharedLink} />
       <div className="library-head">
         <div>
           <h1>Biblioteca</h1>
