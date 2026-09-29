@@ -90,11 +90,19 @@ export function Timeline({ player, peaks, duration, sections, beats, loop, loopO
     if (played.current) drawWave(played.current, peaks, { color: '#c4a8ff' })
   }, [peaks, width])
 
+  const shownTime = useRef('')
   useFrame(() => {
     const p = duration > 0 ? player.position / duration : 0
-    if (playedBox.current) playedBox.current.style.width = `${p * 100}%`
-    if (line.current) line.current.style.transform = `translateX(${p * width}px)`
-    if (timeLabel.current) timeLabel.current.textContent = formatTime(player.position)
+    // Lo ya escuchado se "destapa" con dos transformaciones opuestas (sin volver a pintar).
+    const hidden = ((1 - p) * width).toFixed(1)
+    if (playedBox.current) playedBox.current.style.transform = `translateX(-${hidden}px)`
+    if (played.current) played.current.style.transform = `translateX(${hidden}px)`
+    if (line.current) line.current.style.transform = `translateX(${(p * width).toFixed(1)}px)`
+    const text = formatTime(player.position)
+    if (timeLabel.current && text !== shownTime.current) {
+      shownTime.current = text
+      timeLabel.current.textContent = text
+    }
   })
 
   const timeAt = (clientX: number) => {
@@ -174,8 +182,8 @@ export function Timeline({ player, peaks, duration, sections, beats, loop, loopO
         title="Clic: ir a ese punto · arrastrar: marcar un loop"
       >
         <canvas ref={base} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
-        <div ref={playedBox} style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 0, overflow: 'hidden', pointerEvents: 'none' }}>
-          <canvas ref={played} style={{ position: 'absolute', top: 0, left: 0, width: width || '100%', height: '100%' }} />
+        <div ref={playedBox} style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', transform: 'translateX(-100%)', willChange: 'transform' }}>
+          <canvas ref={played} style={{ position: 'absolute', top: 0, left: 0, width: width || '100%', height: '100%', transform: 'translateX(100%)', willChange: 'transform' }} />
         </div>
         {shown && (
           <div

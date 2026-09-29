@@ -176,27 +176,53 @@ class Grid:
 
 def effective_grid(analysis: dict, settings: dict) -> Grid:
     """Pulsos y acentos con las correcciones que el usuario hizo en el reproductor
-    (contar el doble / la mitad, mover el "1"): el mismo cálculo que la interfaz web."""
+    (contar el doble / la mitad, mover el "1"): el mismo cálculo que la interfaz web.
+
+    El "1" de cada compás sale de los downbeats del análisis (en un popurrí cada tramo tiene el
+    suyo), no de un único punto de partida."""
     tempo_info = analysis.get("tempo") or {}
     per_bar = int(tempo_info.get("beatsPerBar") or 4)
+    saved = settings.get("grid")
+    if isinstance(saved, dict) and isinstance(saved.get("beats"), list) and len(saved["beats"]) >= 2:
+        # El tempo que puso el usuario en el reproductor: la grilla ya viene lista.
+        beats = [float(b) for b in saved["beats"]]
+        downs = {round(float(t), 3) for t in saved.get("downbeats") or []}
+        bpm = saved.get("bpm") if saved.get("bpm") else tempo_info.get("bpm")
+        return Grid(beats, [round(b, 3) in downs for b in beats], per_bar, bpm)
     beats = [float(b) for b in analysis.get("beats") or []]
     downs = {round(float(t), 3) for t in analysis.get("downbeats") or []}
-    phase = next((i for i, b in enumerate(beats) if round(b, 3) in downs), 0)
+    accents = [round(b, 3) in downs for b in beats]
+    if beats and not any(accents):
+        accents = [i % per_bar == 0 for i in range(len(beats))]
     bpm = tempo_info.get("bpm")
     scale = settings.get("beatScale")
     if scale == "double" and len(beats) > 1:
         doubled: list[float] = []
+        marks: list[bool] = []
         for i, b in enumerate(beats):
             doubled.append(b)
+            marks.append(accents[i])
             if i + 1 < len(beats):
                 doubled.append((b + beats[i + 1]) / 2)
-        beats, phase, bpm = doubled, phase * 2, (bpm * 2 if bpm else bpm)
+                marks.append(False)
+        beats, accents, bpm = doubled, marks, (bpm * 2 if bpm else bpm)
     elif scale == "half" and len(beats) > 1:
-        offset = phase % 2
-        beats = [b for i, b in enumerate(beats) if i % 2 == offset]
-        phase, bpm = phase // 2, (bpm / 2 if bpm else bpm)
-    first = (phase + int(settings.get("downbeatShift") or 0)) % per_bar
-    accents = [(i - first) % per_bar == 0 for i in range(len(beats))]
+        first = accents.index(True) if True in accents else 0
+        kept: list[float] = []
+        marks = []
+        since = (first % 2)  # pulsos antes del primer "1": misma paridad que él
+        for i, b in enumerate(beats):
+            if accents[i]:
+                since = 0
+            if since % 2 == 0:
+                kept.append(b)
+                marks.append(accents[i])
+            since += 1
+        beats, accents, bpm = kept, marks, (bpm / 2 if bpm else bpm)
+    shift = int(settings.get("downbeatShift") or 0) % per_bar
+    if shift:
+        accents = [accents[i - shift] if i >= shift else accents[i - shift + per_bar] if i - shift + per_bar < len(accents)
+                   else False for i in range(len(beats))]
     return Grid(beats, accents, per_bar, bpm)
 
 

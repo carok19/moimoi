@@ -17,7 +17,7 @@ from .harmony import analyze_harmony, compute_chromas
 from .presence import analyze_presence
 from .sections import analyze_sections
 
-ANALYSIS_VERSION = 1
+ANALYSIS_VERSION = 2
 
 
 def analyze_song(
@@ -65,9 +65,11 @@ def analyze_song(
             "steady": rhythm.get("steady", False),
             "confidence": rhythm.get("confidence", 0.0),
             "meterConfidence": rhythm.get("meterConfidence", 0.0),
+            "segments": rhythm.get("segments", []),
         },
         "beats": rhythm.get("beats", []),
         "downbeats": rhythm.get("downbeats", []),
+        "onset": rhythm.get("onset"),
         "key": key,
         "keyStart": harmony.get("keyStart"),
         "keyChanges": harmony["keyChanges"],

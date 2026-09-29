@@ -208,6 +208,9 @@ public final class Processor {
         }
     }
 
+    /** Correcciones del pulso guardadas en la canción (se descartan al volver a analizar). */
+    static final String[] TEMPO_SETTINGS = {"grid", "tempoEdits", "beatScale", "downbeatShift"};
+
     /** Vuelve a analizar una canción ya separada (trabajo "reanalyze"). */
     public JSONObject reanalyze(JSONObject job, Jobs.Reporter jobReport) throws Exception {
         String songId = job.optString("song_id");
@@ -228,7 +231,15 @@ public final class Processor {
         if (problem != null) {
             throw new IOException(problem);
         }
-        store.updateSong(songId, "status", "ready", "progress", 1.0, "stage", "Lista", "analysis_error", null);
+        // Las correcciones del pulso eran sobre el análisis anterior.
+        JSONObject current = store.getSong(songId);
+        JSONObject settings = current == null ? null : current.optJSONObject("settings");
+        settings = settings == null ? new JSONObject() : new JSONObject(settings.toString());
+        for (String key : TEMPO_SETTINGS) {
+            settings.remove(key);
+        }
+        store.updateSong(songId, "status", "ready", "progress", 1.0, "stage", "Lista", "analysis_error", null,
+                "settings", settings);
         return new JSONObject().put("analysis", true);
     }
 

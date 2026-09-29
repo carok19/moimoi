@@ -2,21 +2,23 @@ import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 import { ArrowLeft, ExternalLink, Loader2, MoreHorizontal, Package, RefreshCw, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
 import { apiUrl } from '../api/base'
-import type { Analysis, MixerChannel, Peaks, Section, Song, StemId } from '../api/types'
+import type { Analysis, MixerChannel, Peaks, Section, Song, StemId, TempoEdit } from '../api/types'
 import { decodePeaks } from '../audio/peaks'
 import { playbackQuality, StemPlayer, type GuideVoice, type LoopRange } from '../audio/StemPlayer'
 import { ChordPanel, ChordStrip } from '../components/ChordPanel'
+import { EditableText } from '../components/EditableText'
 import { ExportDialog } from '../components/ExportDialog'
 import { Menu } from '../components/Menu'
 import { Mixer } from '../components/Mixer'
 import { LyricsPanel, SectionsPanel } from '../components/SidePanels'
+import { TempoPanel } from '../components/TempoPanel'
 import { Timeline } from '../components/Timeline'
 import { useToast } from '../components/Toasts'
 import { Transport } from '../components/Transport'
 import { useApp } from '../context'
-import { useDebouncedEffect } from '../hooks/useFrame'
+import { useDebouncedEffect, useSampled } from '../hooks/useFrame'
 import { navigate } from '../hooks/useHashRoute'
-import { deriveGrid, sectionIndexAt } from '../music/grid'
+import { deriveGrid, EMPTY_GRID, partIndexAt, sectionIndexAt, tempoAt, type DerivedGrid } from '../music/grid'
 import { formatTime, keyName, mod12, usesFlats } from '../music/theory'
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
@@ -44,6 +46,8 @@ export function PlayerPage({ songId }: { songId: string }) {
   const [loopOn, setLoopOn] = useState(false)
   const [beatScale, setBeatScale] = useState<'double' | 'half' | null>(null)
   const [downbeatShift, setDownbeatShift] = useState(0)
+  const [tempoEdits, setTempoEdits] = useState<TempoEdit[]>([])
+  const [tempoOpen, setTempoOpen] = useState(false)
   const [sectionsEdited, setSectionsEdited] = useState<Section[] | null>(null)
   const [masterVolume, setMasterVolume] = useState(1)
   const [metronome, setMetronome] = useState(false)
@@ -83,6 +87,7 @@ export function PlayerPage({ songId }: { songId: string }) {
         setLoopOn(Boolean(st.loopOn && st.loop))
         setBeatScale(st.beatScale ?? null)
         setDownbeatShift(typeof st.downbeatShift === 'number' ? st.downbeatShift : 0)
+        setTempoEdits(Array.isArray(st.tempoEdits) ? st.tempoEdits : [])
         setSectionsEdited(Array.isArray(st.sections) && st.sections.length ? st.sections : null)
         setMasterVolume(typeof st.masterVolume === 'number' ? st.masterVolume : 1)
         created = StemPlayer.create(playbackQuality(s.stems.length, s.duration ?? 0))
@@ -130,9 +135,25 @@ export function PlayerPage({ songId }: { songId: string }) {
 
   // ---- derivados --------------------------------------------------------------------------------
   const grid = useMemo(
-    () => analysis ? deriveGrid(analysis, { beatScale, downbeatShift }) : { beats: [], accents: [], beatsPerBar: 4, bpm: null, downbeats: [] },
+    () => analysis ? deriveGrid(analysis, { beatScale, downbeatShift, tempoEdits }) : EMPTY_GRID,
+    [analysis, beatScale, downbeatShift, tempoEdits],
+  )
+  // El tempo de cada tramo tal como se detectó (para "volver a lo detectado").
+  const detected = useMemo(
+    () => analysis ? deriveGrid(analysis, { beatScale, downbeatShift }).parts.map((x) => x.bpm) : [],
     [analysis, beatScale, downbeatShift],
   )
+  const editTempo = useCallback((start: number, patch: Partial<TempoEdit> | null) => {
+    setTempoEdits((list) => {
+      const others = list.filter((e) => Math.abs(e.start - start) >= 0.5)
+      if (!patch) return others
+      const current = list.find((e) => Math.abs(e.start - start) < 0.5) ?? { start }
+      const next: TempoEdit = { ...current, ...patch, start }
+      if (next.bpm === undefined) delete next.bpm
+      if (!next.shift) delete next.shift
+      return next.bpm === undefined && next.shift === undefined ? others : [...others, next].sort((a, b) => a.start - b.start)
+    })
+  }, [])
   const sections = sectionsEdited ?? analysis?.sections ?? []
   const key = analysis?.key
   const transposition = useMemo(() => ({
@@ -162,7 +183,7 @@ export function PlayerPage({ songId }: { songId: string }) {
 
   // Click y Guía con el sonido de click y las voces incluidas (como en el paquete para Multitrack).
   // Se vuelve a armar si cambian las partes, el pulso o las opciones de la voz guía.
-  const guideKey = JSON.stringify([sectionsEdited, beatScale, downbeatShift, settings.exportClickSound,
+  const guideKey = JSON.stringify([sectionsEdited, beatScale, downbeatShift, tempoEdits, settings.exportClickSound,
     settings.guideNumbering, settings.guideKeyChanges])
   useEffect(() => {
     if (!player || !song || !analysis) return
@@ -208,9 +229,14 @@ export function PlayerPage({ songId }: { songId: string }) {
       settings: {
         mixer, tempo: rate, semitones, tune440, loop, loopOn, beatScale, downbeatShift, masterVolume,
         sections: sectionsEdited ?? [],
+        tempoEdits,
+        // Con el tempo corregido, el click y la guía del paquete usan esta misma grilla.
+        grid: grid.edited
+          ? { beats: grid.beats.map((b) => Math.round(b * 1000) / 1000), downbeats: grid.downbeats.map((b) => Math.round(b * 1000) / 1000), bpm: grid.bpm }
+          : null,
       },
     }).catch(() => {})
-  }, [mixer, rate, semitones, tune440, loop, loopOn, beatScale, downbeatShift, masterVolume, sectionsEdited], 800)
+  }, [mixer, rate, semitones, tune440, loop, loopOn, beatScale, downbeatShift, masterVolume, sectionsEdited, tempoEdits], 800)
 
   // ---- acciones --------------------------------------------------------------------------------
   const seek = useCallback((t: number) => {
@@ -364,7 +390,6 @@ export function PlayerPage({ songId }: { songId: string }) {
   }
 
   const duration = player.duration
-  const keyChange = analysis?.keyChanges[0]
 
   return (
     <main className="page player-page">
@@ -373,51 +398,18 @@ export function PlayerPage({ songId }: { songId: string }) {
         {song.thumbnailUrl
           ? <img className="thumb" src={apiUrl(song.thumbnailUrl)} alt="" />
           : <div className="thumb">{song.title.slice(0, 1).toUpperCase()}</div>}
-        <div className="grow" style={{ minWidth: 200 }}>
-          <input className="title-edit" defaultValue={song.title} key={`t-${song.updatedAt}`} aria-label="Título"
-            onBlur={(e) => e.target.value.trim() && e.target.value !== song.title && void saveMeta({ title: e.target.value })}
-            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
-          <input className="artist-edit" defaultValue={song.artist ?? ''} placeholder="Artista" key={`a-${song.updatedAt}`}
-            aria-label="Artista" onBlur={(e) => e.target.value !== (song.artist ?? '') && void saveMeta({ artist: e.target.value })}
-            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+        <div className="grow player-title">
+          <EditableText className="title-edit" value={song.title} key={`t-${song.updatedAt}`} ariaLabel="Título" required
+            onSave={(title) => void saveMeta({ title })} />
+          <EditableText className="artist-edit" value={song.artist ?? ''} placeholder="Artista" key={`a-${song.updatedAt}`}
+            ariaLabel="Artista" onSave={(artist) => void saveMeta({ artist })} />
         </div>
         <div className="facts">
-          {key && (
-            <div className="fact" title={`Tonalidad detectada: ${key.label}`}>
-              <span>Tonalidad</span>
-              <b>{keyLabel}{semitones !== 0 && <small>orig. {originalKeyLabel}</small>}</b>
-            </div>
+          {key && analysis && (
+            <KeyFacts player={player} analysis={analysis} semitones={semitones} notation={settings.notation} />
           )}
-          <Menu
-            button={(open) => (
-              <button className="fact" style={{ cursor: 'pointer', textAlign: 'left' }} onClick={open} title="Corregir el pulso">
-                <span>Tempo</span>
-                <b>{grid.bpm ? Math.round(grid.bpm * rate) : '—'}<small>BPM</small></b>
-              </button>
-            )}
-          >
-            {(close) => (
-              <>
-                <div className="label">¿El pulso no coincide?</div>
-                <button onClick={() => { setBeatScale(beatScale === 'double' ? null : 'double'); close() }}>
-                  Contar el doble de rápido (×2){beatScale === 'double' ? ' ✓' : ''}
-                </button>
-                <button onClick={() => { setBeatScale(beatScale === 'half' ? null : 'half'); close() }}>
-                  Contar la mitad (÷2){beatScale === 'half' ? ' ✓' : ''}
-                </button>
-                <button onClick={() => { setDownbeatShift((v) => v + 1); close() }}>Mover el "1" del compás un pulso</button>
-                <div className="sep" />
-                <button onClick={() => { setBeatScale(null); setDownbeatShift(0); close() }}>Restablecer pulso detectado</button>
-              </>
-            )}
-          </Menu>
+          <TempoFact player={player} grid={grid} rate={rate} onOpen={() => setTempoOpen(true)} />
           <div className="fact"><span>Compás</span><b>{grid.beatsPerBar}/4</b></div>
-          {keyChange && (
-            <div className="fact" title="Cambio de tonalidad detectado">
-              <span>Modula a</span>
-              <b>{keyName(keyChange.tonic, keyChange.mode, semitones, settings.notation)}<small>{formatTime(keyChange.time)}</small></b>
-            </div>
-          )}
         </div>
         <button className="btn primary" onClick={() => setExportOpen(true)}><Package size={16} />Exportar</button>
         <Menu button={(open) => <button className="btn icon" onClick={open} aria-label="Más opciones"><MoreHorizontal size={18} /></button>}>
@@ -453,6 +445,14 @@ export function PlayerPage({ songId }: { songId: string }) {
           )}
         </Menu>
       </div>
+
+      {analysis && !analysis.tempo.segments && canAnalyze && (
+        <div className="tiny faint" style={{ margin: '-8px 0 14px' }}>
+          Esta canción se analizó con la versión anterior.{' '}
+          <button className="linkish" onClick={() => setTempoOpen(true)}>Volver a analizarla</button> para que el click siga
+          los cambios de tempo.
+        </div>
+      )}
 
       {player.reduced && (
         <div className="tiny faint" style={{ margin: '-8px 0 14px' }}>
@@ -532,7 +532,7 @@ export function PlayerPage({ songId }: { songId: string }) {
         semitones={semitones}
         keyLabel={keyLabel}
         originalKeyLabel={originalKeyLabel}
-        bpm={grid.bpm}
+        bpmAt={() => tempoAt(grid, player.position)}
         loopOn={loopOn}
         metronome={metronome}
         guide={guideOn}
@@ -555,6 +555,39 @@ export function PlayerPage({ songId }: { songId: string }) {
         onTune440={setTune440}
       />
 
+      {tempoOpen && analysis && (
+        <TempoPanel
+          parts={grid.parts}
+          current={partIndexAt(grid.parts, player.position)}
+          detected={detected}
+          edits={tempoEdits}
+          rate={rate}
+          songTitle={song.title}
+          songArtist={song.artist}
+          oldAnalysis={!analysis.tempo.segments}
+          onEdit={(start, patch) => {
+            // Las correcciones viejas (para toda la canción) pasan a ser del tramo.
+            if (beatScale || downbeatShift) {
+              setBeatScale(null)
+              setDownbeatShift(0)
+            }
+            editTempo(start, patch)
+          }}
+          onSeek={seek}
+          onReanalyze={canAnalyze ? async () => {
+            setTempoOpen(false)
+            try {
+              await api.reanalyze(song.id)
+              toast.show('Volviendo a analizar tempo, acordes y partes…')
+              setSong({ ...song, status: 'analyzing', stage: 'En cola para analizar', progress: 0 })
+            } catch (err) {
+              toast.error(err)
+            }
+          } : undefined}
+          onClose={() => setTempoOpen(false)}
+        />
+      )}
+
       {exportOpen && (
         <ExportDialog
           song={song}
@@ -568,5 +601,52 @@ export function PlayerPage({ songId }: { songId: string }) {
         />
       )}
     </main>
+  )
+}
+
+/** Tempo del tramo que suena (se actualiza solo, sin volver a dibujar todo el reproductor). */
+function TempoFact({ player, grid, rate, onOpen }: { player: StemPlayer; grid: DerivedGrid; rate: number; onOpen: () => void }) {
+  const bpm = useSampled(() => tempoAt(grid, player.position), 250)
+  const changes = grid.parts.length > 1
+  return (
+    <button className="fact" style={{ cursor: 'pointer', textAlign: 'left' }} onClick={onOpen}
+      title={changes ? 'Tempo de la parte que suena · tocar para ver los cambios o corregirlo' : 'Corregir el tempo'}>
+      <span>Tempo{changes ? ' ahora' : ''}</span>
+      <b>{bpm ? Math.round(bpm * rate) : '—'}<small>BPM</small></b>
+    </button>
+  )
+}
+
+/** Tonalidad de la parte que suena y el próximo cambio de tonalidad (si hay). */
+function KeyFacts({ player, analysis, semitones, notation }: {
+  player: StemPlayer
+  analysis: Analysis
+  semitones: number
+  notation: 'american' | 'latin'
+}) {
+  const changes = analysis.keyChanges
+  const index = useSampled(() => {
+    const t = player.position
+    let i = -1
+    while (i + 1 < changes.length && t >= changes[i + 1].time) i++
+    return i
+  }, 250)
+  const now = index >= 0 ? changes[index] : analysis.keyStart ?? analysis.key
+  const next = changes[index + 1]
+  const label = keyName(now.tonic, now.mode, semitones, notation)
+  const original = keyName(now.tonic, now.mode, 0, notation)
+  return (
+    <>
+      <div className="fact" title={`Tonalidad detectada: ${now.label}`}>
+        <span>Tonalidad{changes.length ? ' ahora' : ''}</span>
+        <b>{label}{semitones !== 0 && <small>orig. {original}</small>}</b>
+      </div>
+      {next && (
+        <div className="fact" title="Próximo cambio de tonalidad">
+          <span>Luego</span>
+          <b>{keyName(next.tonic, next.mode, semitones, notation)}<small>{formatTime(next.time)}</small></b>
+        </div>
+      )}
+    </>
   )
 }

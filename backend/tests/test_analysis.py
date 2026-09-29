@@ -168,3 +168,58 @@ def test_silence_and_very_short_audio():
     assert result["beats"] == []
     assert result["instruments"]["vocals"]["level"] == "ausente"
     assert len(result["sections"]) >= 1
+
+
+def _medley(*songs):
+    """Canciones pegadas una detrás de otra (un popurrí): pistas y pulsos reales."""
+    stems, beats, starts, offset = {}, [], [], 0.0
+    for song in songs:
+        starts.append(offset)
+        for name, audio in song.stems.items():
+            stems[name] = audio if name not in stems else np.concatenate([stems[name], audio], axis=1)
+        beats.extend(song.beats + offset)
+        offset += song.stems["drums"].shape[1] / 44100
+    return stems, np.array(beats), starts
+
+
+def test_medley_with_tempo_changes():
+    first = worship_song(bpm=100.0)
+    second = worship_song(bpm=140.0, transpose=2, seed=2)
+    stems, true_beats, starts = _medley(first, second)
+    result = analyze_song(stems, 44100)
+    segments = result["tempo"]["segments"]
+    assert [round(s["bpm"]) for s in segments] == [100, 140]
+    assert abs(segments[1]["start"] - starts[1]) < 4.0
+    assert segments[0]["start"] == 0.0 and segments[-1]["end"] == result["duration"]
+    beats = np.array(result["beats"])
+    # El click sigue los dos tempos: casi todos los pulsos reales tienen uno detectado muy cerca.
+    errors = np.array([np.min(np.abs(beats - b)) for b in true_beats])
+    assert np.mean(errors < 0.03) > 0.9
+    assert np.all(np.diff(beats) > 0.3)
+
+
+def test_single_tempo_song_has_one_segment(worship):
+    _, result = worship
+    segments = result["tempo"]["segments"]
+    assert len(segments) == 1 and segments[0]["bpm"] == pytest.approx(100.0, abs=0.5)
+    assert segments[0]["steady"] is True and segments[0]["beatsPerBar"] == 4
+
+
+def test_export_grid_uses_each_part_downbeats_and_the_saved_grid():
+    from moimoi import exports
+
+    # Un popurrí: el segundo tramo empieza en 3.0 con su propio "1" (no sigue la cuenta del primero).
+    analysis = {"tempo": {"beatsPerBar": 4, "bpm": 120.0}, "beats": [0.5 + 0.5 * i for i in range(12)],
+                "downbeats": [0.5, 2.5, 3.0, 5.0]}
+    grid = exports.effective_grid(analysis, {})
+    assert [b for b, a in zip(grid.beats, grid.accents) if a] == [0.5, 2.5, 3.0, 5.0]
+    # "Mover el 1" corre todos los acentos un pulso.
+    moved = exports.effective_grid(analysis, {"downbeatShift": 1})
+    assert [b for b, a in zip(moved.beats, moved.accents) if a] == [1.0, 3.0, 3.5, 5.5]
+    doubled = exports.effective_grid(analysis, {"beatScale": "double"})
+    assert len(doubled.beats) == 23 and doubled.bpm == 240.0
+    assert [b for b, a in zip(doubled.beats, doubled.accents) if a] == [0.5, 2.5, 3.0, 5.0]
+    # El tempo corregido en el reproductor manda (y ya trae aplicadas las otras correcciones).
+    saved = {"grid": {"beats": [1.0, 1.6, 2.2, 2.8], "downbeats": [1.0], "bpm": 100}, "beatScale": "double"}
+    custom = exports.effective_grid(analysis, saved)
+    assert custom.beats == [1.0, 1.6, 2.2, 2.8] and custom.accents == [True, False, False, False] and custom.bpm == 100

@@ -4,7 +4,7 @@ import {
   Undo2, Volume2,
 } from 'lucide-react'
 import type { StemPlayer } from '../audio/StemPlayer'
-import { useFrame } from '../hooks/useFrame'
+import { useFrame, useSampled } from '../hooks/useFrame'
 import { formatTime } from '../music/theory'
 import { Menu } from './Menu'
 
@@ -15,7 +15,8 @@ interface Props {
   semitones: number
   keyLabel: string | null
   originalKeyLabel: string | null
-  bpm: number | null
+  /** Tempo de la parte que suena (en un popurrí cambia). */
+  bpmAt: () => number | null
   loopOn: boolean
   metronome: boolean
   guide: boolean
@@ -41,13 +42,17 @@ interface Props {
 export function Transport(p: Props) {
   const time = useRef<HTMLSpanElement>(null)
   const [expanded, setExpanded] = useState(false)
+  const shown = useRef('')
   useFrame(() => {
-    if (time.current) {
-      const counting = p.player.countingIn
-      time.current.textContent = counting ? 'Cuenta…' : formatTime(p.player.position)
+    // Solo cuando cambia el texto (cambiarlo en cada cuadro obliga a recalcular la pantalla).
+    const text = p.player.countingIn ? 'Cuenta…' : formatTime(p.player.position)
+    if (time.current && text !== shown.current) {
+      shown.current = text
+      time.current.textContent = text
     }
   })
   const pct = Math.round(p.rate * 100)
+  const bpm = useSampled(p.bpmAt, 250)
   return (
     <div className={`transport${expanded ? ' expanded' : ''}`} role="region" aria-label="Controles de reproducción">
       <div className="inner">
@@ -113,7 +118,7 @@ export function Transport(p: Props) {
 
         <div className="right">
           <div className="stepper" style={{ minWidth: 200 }}>
-            <div className="label">Velocidad <b>{pct}%{p.bpm ? ` · ${Math.round(p.bpm * p.rate)} BPM` : ''}</b></div>
+            <div className="label">Velocidad <b>{pct}%{bpm ? ` · ${Math.round(bpm * p.rate)} BPM` : ''}</b></div>
             <div className="ctrl">
               <button onClick={() => p.onRate(Math.max(0.5, Math.round((p.rate - 0.05) * 100) / 100))} aria-label="Más lento ([)"><Minus size={14} /></button>
               <input type="range" min={50} max={150} step={1} value={pct} onChange={(e) => p.onRate(Number(e.target.value) / 100)}

@@ -29,6 +29,8 @@ from .storage import SongPaths, new_id, write_json
 log = logging.getLogger("moimoi.worker")
 
 HEAVY_KINDS = ("process", "lyrics", "reanalyze")
+#: Correcciones del pulso guardadas en la canción (se descartan al volver a analizar).
+TEMPO_SETTINGS = ("grid", "tempoEdits", "beatScale", "downbeatShift")
 LIGHT_KINDS = ("export",)
 
 
@@ -303,7 +305,10 @@ class Worker:
         self.db.update_song(song_id, status="analyzing", stage="Analizando…")
         stems = self._load_stems(song, paths)
         self._run_analysis(song_id, paths, stems, self._progress(job, song_status="analyzing"))
-        self.db.update_song(song_id, status="ready", progress=1.0, stage="Lista")
+        # Las correcciones del pulso eran sobre el análisis anterior.
+        current = self.db.get_song(song_id) or song
+        settings = {k: v for k, v in (current.get("settings") or {}).items() if k not in TEMPO_SETTINGS}
+        self.db.update_song(song_id, status="ready", progress=1.0, stage="Lista", settings=settings)
         return {}
 
     def _lyrics(self, job: dict) -> dict:

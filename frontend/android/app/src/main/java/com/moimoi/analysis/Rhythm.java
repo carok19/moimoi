@@ -14,6 +14,10 @@ public final class Rhythm {
     public boolean steady;
     public double confidence;
     public double meterConfidence;
+    /** Tramos de tempo (uno solo si la canción no cambia de tempo). */
+    public List<Part> parts = new ArrayList<>();
+    /** La curva de ataques que usó el detector de pulsos (para volver a acomodarlos a otro tempo). */
+    public double[] onset = new double[0];
 
     static final int SR = Dsp.SR;
     static final int HOP = Dsp.HOP;
@@ -249,11 +253,56 @@ public final class Rhythm {
         return null;
     }
 
+    /**
+     * counted_half: el error contrario a halfTimePhase, el detector contó la mitad del tempo (140
+     * leído como 70). Pasa cuando el bombo y el redoblante se turnan entre los pulsos y el medio de
+     * cada pulso: son el 1-3 y el 2-4 de un pulso al doble.
+     */
+    static boolean countedHalf(int[] beatFrames, float[] kick, float[] snare) {
+        if (beatFrames.length < 16) {
+            return false;
+        }
+        int n = beatFrames.length - 1;
+        int[] starts = java.util.Arrays.copyOf(beatFrames, n);
+        int[] mids = new int[n];
+        for (int i = 0; i < n; i++) {
+            mids[i] = Math.floorDiv(beatFrames[i] + beatFrames[i + 1], 2);
+        }
+        double[] sn = unit(concat(atBeats(snare, starts), atBeats(snare, mids)));
+        double[] kk = unit(concat(atBeats(kick, starts), atBeats(kick, mids)));
+        double snareOn = meanOf(sn, 0, n), snareMid = meanOf(sn, n, 2 * n);
+        double kickOn = meanOf(kk, 0, n), kickMid = meanOf(kk, n, 2 * n);
+        // Uno de los dos cambia claramente de lugar y el otro lo acompaña (los platillos suenan en
+        // los dos lugares y le bajan el contraste al redoblante).
+        return (snareMid > 1.5 * snareOn && kickOn > 1.2 * kickMid) || (kickOn > 1.5 * kickMid && snareMid > 1.2 * snareOn)
+                || (kickMid > 1.5 * kickOn && snareOn > 1.2 * snareMid) || (snareOn > 1.5 * snareMid && kickMid > 1.2 * kickOn);
+    }
+
+    private static double[] concat(double[] a, double[] b) {
+        double[] out = java.util.Arrays.copyOf(a, a.length + b.length);
+        System.arraycopy(b, 0, out, a.length, b.length);
+        return out;
+    }
+
+    private static double meanOf(double[] v, int from, int to) {
+        double s = 0;
+        for (int i = from; i < to; i++) {
+            s += v[i];
+        }
+        return to > from ? s / (to - from) : 0;
+    }
+
     /** estimate_meter_and_downbeats: compás (3 o 4) y en qué pulso cae el "1". {compás, fase, confianza}. */
     static double[] meterAndDownbeats(int[] beatFrames, double[] lowEnv, double[][] trebleChroma, double[][] bassChroma) {
+        return meterAndDownbeats(beatFrames, lowEnv, trebleChroma, bassChroma, new int[] {4, 3});
+    }
+
+    /** Con `meters`: solo esos compases (p. ej. el de la canción, en un tramo corto). */
+    static double[] meterAndDownbeats(int[] beatFrames, double[] lowEnv, double[][] trebleChroma, double[][] bassChroma,
+                                      int[] meters) {
         int n = beatFrames.length;
         if (n < 8) {
-            return new double[] {4, 0, 0.0};
+            return new double[] {meters[0], 0, 0.0};
         }
         double[] low = atBeats(lowEnv, beatFrames);
         int total = trebleChroma[0].length;
@@ -264,7 +313,13 @@ public final class Rhythm {
         for (int i = 0; i < n; i++) {
             feature[i] = 0.8 * nl[i] + 1.0 * nt[i] + 0.7 * nb[i];
         }
-        int[][] options = {{4, 0}, {4, 1}, {4, 2}, {4, 3}, {3, 0}, {3, 1}, {3, 2}};
+        List<int[]> optionList = new ArrayList<>();
+        for (int meter : meters) {
+            for (int phase = 0; phase < meter; phase++) {
+                optionList.add(new int[] {meter, phase});
+            }
+        }
+        int[][] options = optionList.toArray(new int[0][]);
         double[] scores = new double[options.length];
         int best = 0;
         for (int o = 0; o < options.length; o++) {
@@ -292,7 +347,7 @@ public final class Rhythm {
                 second = Math.max(second, scores[o]);
             }
         }
-        double confidence = Math.min(1.0, Math.max(0.0, (scores[best] - second) / 0.5));
+        double confidence = options.length > 1 ? Math.min(1.0, Math.max(0.0, (scores[best] - second) / 0.5)) : 0.0;
         return new double[] {options[best][0], options[best][1], confidence};
     }
 
@@ -321,6 +376,258 @@ public final class Rhythm {
             out[i] = 1.0 - dot;
         }
         return out;
+    }
+
+    // ---- mapa de tempo (canciones con cambios de tempo) ------------------------------------------
+
+    static final double TEMPO_MIN = 55.0;
+    static final double TEMPO_MAX = 200.0;
+    /** Un tramo de tempo dura por lo menos esto (segundos); si no, se junta con el vecino. */
+    static final double TEMPO_MIN_SEGMENT = 16.0;
+
+    /** Un tramo del mapa de tempo: cuadros [start, end) y período en cuadros (con decimales). */
+    static final class TempoSegment {
+        final int start;
+        final int end;
+        final double lag;
+
+        TempoSegment(int start, int end, double lag) {
+            this.start = start;
+            this.end = end;
+            this.lag = lag;
+        }
+    }
+
+    /**
+     * tempo_columns: autocorrelación de ventanas de 8 s cada `step` cuadros, como el tempograma
+     * de librosa (Hann, relleno en rampa hasta 0 y cada columna dividida por su máximo).
+     * Devuelve [columna][retardo]; centers recibe el cuadro central de cada columna.
+     */
+    static double[][] tempoColumns(double[] env, int step, List<Integer> centers) {
+        double fps = SR / (double) HOP;
+        int win = (int) Math.floor(8.0 * fps);
+        int half = win / 2;
+        int n = env.length;
+        double[] padded = new double[n + 2 * half];
+        for (int i = 0; i < half; i++) {
+            double ramp = i / (double) half;
+            padded[i] = n > 0 ? env[0] * ramp : 0;
+            padded[n + 2 * half - 1 - i] = n > 0 ? env[n - 1] * ramp : 0;
+        }
+        System.arraycopy(env, 0, padded, half, n);
+        float[] window = Dsp.hann(win, true);
+        int nFft = Integer.highestOneBit(2 * win - 1) << 1;
+        com.moimoi.engine.Fft fft = new com.moimoi.engine.Fft(nFft);
+        float[] frame = new float[nFft];
+        float[] re = new float[nFft / 2 + 1];
+        float[] im = new float[nFft / 2 + 1];
+        float[] ac = new float[nFft];
+        List<double[]> out = new ArrayList<>();
+        for (int t = 0; t < n; t += step) {
+            java.util.Arrays.fill(frame, 0f);
+            for (int i = 0; i < win; i++) {
+                frame[i] = (float) (padded[t + i] * window[i]);
+            }
+            fft.forward(frame, 0, re, im);
+            for (int k = 0; k < re.length; k++) {
+                re[k] = re[k] * re[k] + im[k] * im[k];
+                im[k] = 0f;
+            }
+            fft.inverse(re, im, ac, 0);
+            float peak = 0f;
+            for (int l = 0; l < win; l++) {
+                peak = Math.max(peak, Math.abs(ac[l]));
+            }
+            double[] col = new double[win];
+            if (peak > 0) {
+                for (int l = 0; l < win; l++) {
+                    col[l] = ac[l] / peak;
+                }
+            }
+            out.add(col);
+            centers.add(t);
+        }
+        return out.toArray(new double[0][]);
+    }
+
+    private static double median(double[] v, int from, int to) {
+        return Dsp.median(v, from, to);
+    }
+
+    /**
+     * tempo_segments: tramos donde el tempo no cambia. Cada segundo se mide la periodicidad de los
+     * ataques (reforzada con la del doble del período: el bombo suele marcar cada dos pulsos) con
+     * la preferencia por tempos cercanos a 120, y un Viterbi elige el camino más estable: cambiar
+     * de tempo cuesta, y cambiar al doble o a la mitad (un cambio de "feel") cuesta más todavía.
+     */
+    static List<TempoSegment> tempoSegments(double[] env, double startBpm) {
+        double fps = SR / (double) HOP;
+        int n = env.length;
+        int step = Math.max(1, (int) Math.rint(fps));
+        List<Integer> centerList = new ArrayList<>();
+        double[][] ac = tempoColumns(env, step, centerList);
+        int cols = ac.length;
+        int win = ac[0].length;
+        int half = win / 2;
+        double[][] combed = new double[cols][win];
+        for (int c = 0; c < cols; c++) {
+            for (int l = 0; l < win; l++) {
+                double v = ac[c][l];
+                if (l >= 1 && l < half) {
+                    v += 0.5 * ac[c][2 * l];
+                }
+                combed[c][l] = v / 1.5;
+            }
+        }
+        List<Integer> lagList = new ArrayList<>();
+        for (int l = 1; l < win; l++) {
+            double bpm = 60.0 * fps / l;
+            if (bpm >= TEMPO_MIN && bpm <= TEMPO_MAX) {
+                lagList.add(l);
+            }
+        }
+        int m = lagList.size();
+        int[] lags = new int[m];
+        double[] prior = new double[m];
+        for (int s = 0; s < m; s++) {
+            lags[s] = lagList.get(s);
+            double bpm = 60.0 * fps / lags[s];
+            double d = Math.log(bpm) / Math.log(2) - Math.log(startBpm) / Math.log(2);
+            prior[s] = -0.5 * d * d;
+        }
+        double[][] cost = new double[m][m];
+        for (int a = 0; a < m; a++) {
+            for (int b = 0; b < m; b++) {
+                double ratio = lags[b] / (double) lags[a];
+                cost[a][b] = Math.abs(Math.log(ratio) / Math.log(2)) > Math.log(1.8) / Math.log(2) ? 18.0 : 6.0;
+                if (a == b) {
+                    cost[a][b] = 0.0;
+                } else if (Math.abs(a - b) == 1) {
+                    cost[a][b] = 0.7;
+                }
+            }
+        }
+        double[] acc = new double[m];
+        int[][] back = new int[cols][m];
+        for (int s = 0; s < m; s++) {
+            acc[s] = Math.log1p(1e6 * Math.max(combed[0][lags[s]], 0.0)) + prior[s];
+        }
+        double[] next = new double[m];
+        for (int t = 1; t < cols; t++) {
+            for (int b = 0; b < m; b++) {
+                double best = Double.NEGATIVE_INFINITY;
+                int arg = 0;
+                for (int a = 0; a < m; a++) {
+                    double v = acc[a] - cost[a][b];
+                    if (v > best) {
+                        best = v;
+                        arg = a;
+                    }
+                }
+                back[t][b] = arg;
+                next[b] = best + Math.log1p(1e6 * Math.max(combed[t][lags[b]], 0.0)) + prior[b];
+            }
+            double[] swap = acc;
+            acc = next;
+            next = swap;
+        }
+        int[] path = new int[cols];
+        int last = 0;
+        for (int s = 1; s < m; s++) {
+            if (acc[s] > acc[last]) {
+                last = s;
+            }
+        }
+        path[cols - 1] = last;
+        for (int t = cols - 1; t > 0; t--) {
+            path[t - 1] = back[t][path[t]];
+        }
+        double[] lagPath = new double[cols];
+        for (int t = 0; t < cols; t++) {
+            lagPath[t] = lags[path[t]];
+        }
+
+        // Tramos donde el período no se aleja más de un cuadro de la mediana del tramo.
+        List<int[]> runs = new ArrayList<>();
+        int start = 0;
+        for (int i = 1; i <= cols; i++) {
+            if (i == cols || Math.abs(lagPath[i] - median(lagPath, start, i)) > 1) {
+                runs.add(new int[] {start, i});
+                start = i;
+            }
+        }
+        double minColumns = TEMPO_MIN_SEGMENT * fps / step;
+        while (runs.size() > 1) {
+            int k = 0;
+            for (int i = 1; i < runs.size(); i++) {
+                if (runs.get(i)[1] - runs.get(i)[0] < runs.get(k)[1] - runs.get(k)[0]) {
+                    k = i;
+                }
+            }
+            int[] r = runs.get(k);
+            if (r[1] - r[0] >= minColumns) {
+                break;
+            }
+            double here = median(lagPath, r[0], r[1]);
+            double left = k > 0 ? Math.abs(median(lagPath, runs.get(k - 1)[0], runs.get(k - 1)[1]) - here) : Double.POSITIVE_INFINITY;
+            double right = k + 1 < runs.size() ? Math.abs(median(lagPath, runs.get(k + 1)[0], runs.get(k + 1)[1]) - here)
+                    : Double.POSITIVE_INFINITY;
+            if (left <= right) {
+                runs.get(k - 1)[1] = r[1];
+            } else {
+                runs.get(k + 1)[0] = r[0];
+            }
+            runs.remove(k);
+        }
+
+        List<TempoSegment> segments = new ArrayList<>();
+        for (int s = 0; s < runs.size(); s++) {
+            int a = runs.get(s)[0], b = runs.get(s)[1];
+            // Período fino: pico de la autocorrelación promedio del tramo (interpolación parabólica).
+            double[] mean = new double[win];
+            for (int c = a; c < b; c++) {
+                for (int l = 0; l < win; l++) {
+                    mean[l] += combed[c][l];
+                }
+            }
+            for (int l = 0; l < win; l++) {
+                mean[l] /= (b - a);
+            }
+            int guess = (int) Math.rint(median(lagPath, a, b));
+            int lo = Math.max(2, guess - 1), hi = Math.min(win - 2, guess + 1);
+            int peak = lo;
+            for (int l = lo + 1; l <= hi; l++) {
+                if (mean[l] > mean[peak]) {
+                    peak = l;
+                }
+            }
+            double y0 = mean[peak - 1], y1 = mean[peak], y2 = mean[peak + 1];
+            double den = y0 - 2 * y1 + y2;
+            double lag = peak + (den < 0 ? 0.5 * (y0 - y2) / den : 0.0);
+            int f0 = s == 0 ? 0 : (int) Math.rint((centerList.get(a - 1) + centerList.get(a)) / 2.0);
+            int f1 = s == runs.size() - 1 ? n : (int) Math.rint((centerList.get(b - 1) + centerList.get(b)) / 2.0);
+            segments.add(new TempoSegment(f0, f1, lag));
+        }
+        return segments;
+    }
+
+    /** Número de tramo de tempo de un cuadro. */
+    static int segmentOf(int frame, List<TempoSegment> segments) {
+        int s = 0;
+        while (s + 1 < segments.size() && frame >= segments.get(s + 1).start) {
+            s++;
+        }
+        return s;
+    }
+
+    /** Un tramo de tempo de la canción ya con sus pulsos. */
+    public static final class Part {
+        public double start;
+        public double end;
+        public double bpm;
+        public int beatsPerBar;
+        public boolean steady;
+        double[] times;
     }
 
     // ---- análisis completo ------------------------------------------------------------------------
@@ -395,8 +702,24 @@ public final class Rhythm {
         if (!any) {
             return r;
         }
-        double tempo = Beats.tempo(env, SR, HOP, 120, 240);
-        int[] beatFrames = Beats.track(env, SR, HOP, tempo, 120);
+        r.onset = env;
+        // El tempo se mide con el bombo y el redoblante (los platillos suelen marcar subdivisiones).
+        double[] tempoEnv = env;
+        if (in.drumsOk) {
+            double[] k = unit(in.drumsKick), sn = unit(in.drumsSnare);
+            tempoEnv = new double[env.length];
+            for (int i = 0; i < env.length; i++) {
+                tempoEnv[i] = (i < k.length ? k[i] : 0) + (i < sn.length ? sn[i] : 0) + 0.5 * env[i];
+            }
+        }
+        List<TempoSegment> segments = tempoSegments(tempoEnv, 120);
+        double fps = SR / (double) HOP;
+        double[] bpmCurve = new double[env.length];
+        for (TempoSegment seg : segments) {
+            java.util.Arrays.fill(bpmCurve, seg.start, Math.min(seg.end, env.length), 60.0 * fps / seg.lag);
+        }
+        double tempo = 60.0 * fps / segments.get(0).lag;
+        int[] beatFrames = Beats.track(env, SR, HOP, bpmCurve, 120);
 
         // Quitar pulsos en silencio (antes de que empiece o después de que termine la música).
         double[] loud = in.mixLoud;
@@ -425,22 +748,50 @@ public final class Rhythm {
             return r;
         }
 
-        if (in.drumsOk && beatFrames.length >= 16) {
-            double[] d = new double[beatFrames.length - 1];
-            for (int i = 0; i + 1 < beatFrames.length; i++) {
-                d[i] = beatFrames[i + 1] - beatFrames[i];
-            }
-            double periodS = Dsp.median(d) * HOP / SR;
-            if (60.0 / (2 * periodS) >= 50) { // no bajar de 50 BPM
-                Integer phase = halfTimePhase(beatFrames, in.drumsKick, in.drumsSnare);
-                if (phase != null) {
-                    List<Integer> kept = new ArrayList<>();
-                    for (int i = phase; i < beatFrames.length; i += 2) {
-                        kept.add(beatFrames[i]);
+        // ¿El detector marcó el doble o la mitad del tempo? Se mira en cada tramo (en un popurrí
+        // puede pasar en uno solo).
+        if (in.drumsOk) {
+            List<Integer> kept = new ArrayList<>();
+            for (int s = 0; s < segments.size(); s++) {
+                List<Integer> frames = new ArrayList<>();
+                for (int f : beatFrames) {
+                    if (segmentOf(f, segments) == s) {
+                        frames.add(f);
                     }
-                    beatFrames = toInts(kept);
+                }
+                int[] fr = toInts(frames);
+                if (fr.length >= 16) {
+                    double[] d = new double[fr.length - 1];
+                    for (int i = 0; i + 1 < fr.length; i++) {
+                        d[i] = fr[i + 1] - fr[i];
+                    }
+                    double periodS = Dsp.median(d) * HOP / SR;
+                    if (2 * 60.0 / periodS <= 180 && countedHalf(fr, in.drumsKick, in.drumsSnare)) {
+                        // Contó la mitad: se agrega el pulso del medio.
+                        int[] doubled = new int[2 * fr.length - 1];
+                        for (int i = 0; i < fr.length; i++) {
+                            doubled[2 * i] = fr[i];
+                            if (i + 1 < fr.length) {
+                                doubled[2 * i + 1] = Math.floorDiv(fr[i] + fr[i + 1], 2);
+                            }
+                        }
+                        fr = doubled;
+                    } else if (60.0 / (2 * periodS) >= 50) { // no bajar de 50 BPM
+                        Integer phase = halfTimePhase(fr, in.drumsKick, in.drumsSnare);
+                        if (phase != null) {
+                            List<Integer> halfList = new ArrayList<>();
+                            for (int i = phase; i < fr.length; i += 2) {
+                                halfList.add(fr[i]);
+                            }
+                            fr = toInts(halfList);
+                        }
+                    }
+                }
+                for (int f : fr) {
+                    kept.add(f);
                 }
             }
+            beatFrames = toInts(kept);
         }
 
         // Confianza del pulso: cuánto más fuerte es el ataque en los pulsos que en el resto.
@@ -459,45 +810,156 @@ public final class Rhythm {
         for (int i = 0; i < beatTimes.length; i++) {
             beatTimes[i] += offset;
         }
-        Grid grid = fitSteadyGrid(beatTimes);
-        boolean steady = grid != null && grid.steady;
-        double bpm;
-        if (steady) {
-            List<Double> times = new ArrayList<>();
-            for (long k = grid.k0; k <= grid.k1; k++) {
-                double t = grid.offset + grid.period * k;
-                if (t >= 0 && t < in.duration) {
-                    times.add(t);
+
+        // Cada tramo con tempo constante (grabado con click) pasa a una grilla perfecta.
+        List<Part> parts = new ArrayList<>();
+        for (int s = 0; s < segments.size(); s++) {
+            List<Double> list = new ArrayList<>();
+            for (int i = 0; i < beatFrames.length; i++) {
+                if (segmentOf(beatFrames[i], segments) == s) {
+                    list.add(beatTimes[i]);
                 }
             }
-            beatTimes = new double[times.size()];
-            beatFrames = new int[times.size()];
-            for (int i = 0; i < beatTimes.length; i++) {
-                beatTimes[i] = times.get(i);
-                beatFrames[i] = (int) Math.rint(beatTimes[i] * SR / HOP);
+            if (list.size() < 2) {
+                continue;
             }
-            bpm = 60.0 / grid.period;
-        } else {
-            bpm = 60.0 / Dsp.median(diff(beatTimes));
+            double[] times = new double[list.size()];
+            for (int i = 0; i < times.length; i++) {
+                times[i] = list.get(i);
+            }
+            Grid grid = fitSteadyGrid(times);
+            boolean steady = grid != null && grid.steady;
+            double bpm;
+            if (steady) {
+                times = new double[(int) (grid.k1 - grid.k0 + 1)];
+                for (long k = grid.k0; k <= grid.k1; k++) {
+                    times[(int) (k - grid.k0)] = grid.offset + grid.period * k;
+                }
+                bpm = 60.0 / grid.period;
+            } else {
+                bpm = 60.0 / Dsp.median(diff(times));
+            }
+            if (!parts.isEmpty() && Math.abs(bpm / parts.get(parts.size() - 1).bpm - 1) < 0.03) {
+                // Tramo vecino con el mismo tempo: es el mismo.
+                Part prev = parts.get(parts.size() - 1);
+                double weight = prev.times.length / (double) (prev.times.length + times.length);
+                double[] joined = java.util.Arrays.copyOf(prev.times, prev.times.length + times.length);
+                System.arraycopy(times, 0, joined, prev.times.length, times.length);
+                prev.times = joined;
+                prev.steady = prev.steady && steady;
+                prev.bpm = weight * prev.bpm + (1 - weight) * bpm;
+                continue;
+            }
+            Part part = new Part();
+            part.times = times;
+            part.steady = steady;
+            part.bpm = bpm;
+            parts.add(part);
+        }
+        // Sin pulsos repetidos donde se tocan dos tramos, ni fuera de la canción.
+        List<Part> clean = new ArrayList<>();
+        double prevLast = Double.NEGATIVE_INFINITY;
+        for (Part p : parts) {
+            double lim = clean.isEmpty() ? Double.NEGATIVE_INFINITY : prevLast + 0.4 * 60.0 / p.bpm;
+            List<Double> kept = new ArrayList<>();
+            for (double t : p.times) {
+                if (t >= lim && t >= 0 && t < in.duration) {
+                    kept.add(t);
+                }
+            }
+            if (kept.size() < 2) {
+                continue;
+            }
+            p.times = new double[kept.size()];
+            for (int i = 0; i < p.times.length; i++) {
+                p.times[i] = kept.get(i);
+            }
+            prevLast = p.times[p.times.length - 1];
+            clean.add(p);
+        }
+        parts = clean;
+        int total = 0;
+        for (Part p : parts) {
+            total += p.times.length;
+        }
+        beatTimes = new double[total];
+        int pos = 0;
+        for (Part p : parts) {
+            System.arraycopy(p.times, 0, beatTimes, pos, p.times.length);
+            pos += p.times.length;
+        }
+        beatFrames = new int[total];
+        for (int i = 0; i < total; i++) {
+            beatFrames[i] = (int) Math.rint(beatTimes[i] * SR / HOP);
+        }
+        if (total < 4) {
+            r.bpm = tempo != 0 ? Dsp.round(tempo, 1) : null;
+            return r;
         }
 
+        // Compás y "1" de cada tramo (en un popurrí cada canción tiene los suyos).
         double[] lowEnv = Dsp.toDouble(in.drumsOk ? in.drumsKick : in.mixLow);
         if (in.bassOnset != null) {
             double[] a = unit(lowEnv);
             double[] b = unit(in.bassOnset);
             lowEnv = new double[a.length];
             for (int i = 0; i < a.length; i++) {
-                lowEnv[i] = a[i] + 0.6 * b[i];
+                lowEnv[i] = a[i] + 0.6 * (i < b.length ? b[i] : 0);
             }
         }
-        double[] meter = meterAndDownbeats(beatFrames, lowEnv, trebleChroma, bassChroma);
-        int beatsPerBar = (int) meter[0];
-        int phase = (int) meter[1];
+        double[] meterAll = meterAndDownbeats(beatFrames, lowEnv, trebleChroma, bassChroma);
         List<Double> downs = new ArrayList<>();
-        for (int i = phase; i < beatTimes.length; i += beatsPerBar) {
-            downs.add(beatTimes[i]);
+        java.util.Map<Integer, Double> weights = new java.util.LinkedHashMap<>();
+        double confidenceSum = 0;
+        pos = 0;
+        for (int k = 0; k < parts.size(); k++) {
+            Part p = parts.get(k);
+            int count = p.times.length;
+            int[] frames = java.util.Arrays.copyOfRange(beatFrames, pos, pos + count);
+            pos += count;
+            double[] meter;
+            if (parts.size() == 1) {
+                meter = meterAll;
+            } else if (count >= 16) {
+                meter = meterAndDownbeats(frames, lowEnv, trebleChroma, bassChroma);
+            } else {
+                meter = meterAndDownbeats(frames, lowEnv, trebleChroma, bassChroma, new int[] {(int) meterAll[0]});
+            }
+            int perBar = (int) meter[0];
+            int phase = (int) meter[1];
+            for (int i = phase; i < count; i += perBar) {
+                downs.add(p.times[i]);
+            }
+            p.beatsPerBar = perBar;
+            p.start = k == 0 ? 0.0 : Dsp.round(p.times[0], 3);
+            p.end = Dsp.round(in.duration, 3);
+            if (k > 0) {
+                parts.get(k - 1).end = p.start;
+            }
+            double span = count > 1 ? p.times[count - 1] - p.times[0] : 0.0;
+            weights.merge(perBar, span, Double::sum);
+            confidenceSum += meter[2] * span;
         }
-        r.bpm = Dsp.round(bpm, 1);
+        double spanTotal = 0;
+        int beatsPerBar = (int) meterAll[0];
+        double bestSpan = -1;
+        for (java.util.Map.Entry<Integer, Double> e : weights.entrySet()) {
+            spanTotal += e.getValue();
+            if (e.getValue() > bestSpan) {
+                bestSpan = e.getValue();
+                beatsPerBar = e.getKey();
+            }
+        }
+        Part main = parts.get(0);
+        boolean allSteady = true;
+        for (Part p : parts) {
+            if (p.end - p.start > main.end - main.start) {
+                main = p;
+            }
+            allSteady &= p.steady;
+            p.bpm = Dsp.round(p.bpm, 1);
+        }
+        r.bpm = main.bpm;
         r.beats = new double[beatTimes.length];
         for (int i = 0; i < beatTimes.length; i++) {
             r.beats[i] = Dsp.round(beatTimes[i], 3);
@@ -506,11 +968,12 @@ public final class Rhythm {
         for (int i = 0; i < r.downbeats.length; i++) {
             r.downbeats[i] = Dsp.round(downs.get(i), 3);
         }
-        r.downbeatPhase = phase;
+        r.downbeatPhase = (int) meterAll[1];
         r.beatsPerBar = beatsPerBar;
-        r.steady = steady;
+        r.steady = allSteady;
         r.confidence = Dsp.round(pulseConfidence, 2);
-        r.meterConfidence = Dsp.round(meter[2], 2);
+        r.meterConfidence = Dsp.round(confidenceSum / (spanTotal > 0 ? spanTotal : 1.0), 2);
+        r.parts = parts;
         return r;
     }
 

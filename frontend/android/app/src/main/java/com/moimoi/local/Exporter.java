@@ -142,10 +142,36 @@ public final class Exporter {
         return Math.round(v * 1000.0) / 1000.0;
     }
 
-    /** Pulsos y acentos con las correcciones del usuario (doble/mitad, mover el "1"). */
+    /**
+     * Pulsos y acentos con las correcciones del usuario (doble/mitad, mover el "1"), como
+     * exports.effective_grid. El "1" de cada compás sale de los downbeats del análisis (en un
+     * popurrí cada tramo tiene el suyo).
+     */
     static Grid effectiveGrid(JSONObject analysis, JSONObject settings) {
         JSONObject tempo = analysis.optJSONObject("tempo");
         int perBar = tempo == null ? 4 : Math.max(1, tempo.optInt("beatsPerBar", 4));
+        JSONObject saved = settings == null ? null : settings.optJSONObject("grid");
+        JSONArray savedBeats = saved == null ? null : saved.optJSONArray("beats");
+        if (savedBeats != null && savedBeats.length() >= 2) {
+            // El tempo que puso el usuario en el reproductor: la grilla ya viene lista.
+            double[] beats = new double[savedBeats.length()];
+            for (int i = 0; i < beats.length; i++) {
+                beats[i] = savedBeats.optDouble(i);
+            }
+            Set<Double> downs = new HashSet<>();
+            JSONArray d = saved.optJSONArray("downbeats");
+            for (int i = 0; d != null && i < d.length(); i++) {
+                downs.add(r3(d.optDouble(i)));
+            }
+            boolean[] accents = new boolean[beats.length];
+            for (int i = 0; i < beats.length; i++) {
+                accents[i] = downs.contains(r3(beats[i]));
+            }
+            double savedBpm = saved.optDouble("bpm", Double.NaN);
+            Double bpm = !Double.isNaN(savedBpm) && savedBpm > 0 ? Double.valueOf(savedBpm)
+                    : tempo == null || tempo.isNull("bpm") || !tempo.has("bpm") ? null : tempo.optDouble("bpm");
+            return new Grid(beats, accents, perBar, bpm);
+        }
         JSONArray b = analysis.optJSONArray("beats");
         double[] beats = new double[b == null ? 0 : b.length()];
         for (int i = 0; i < beats.length; i++) {
@@ -156,46 +182,69 @@ public final class Exporter {
         for (int i = 0; d != null && i < d.length(); i++) {
             downs.add(r3(d.optDouble(i)));
         }
-        int phase = 0;
+        boolean[] accents = new boolean[beats.length];
+        boolean any = false;
         for (int i = 0; i < beats.length; i++) {
-            if (downs.contains(r3(beats[i]))) {
-                phase = i;
-                break;
+            accents[i] = downs.contains(r3(beats[i]));
+            any |= accents[i];
+        }
+        if (!any) {
+            for (int i = 0; i < beats.length; i++) {
+                accents[i] = i % perBar == 0;
             }
         }
         Double bpm = tempo == null || tempo.isNull("bpm") || !tempo.has("bpm") ? null : tempo.optDouble("bpm");
         String scale = settings == null ? null : Json.optString(settings, "beatScale");
         if ("double".equals(scale) && beats.length > 1) {
             double[] doubled = new double[beats.length * 2 - 1];
+            boolean[] marks = new boolean[doubled.length];
             for (int i = 0; i < beats.length; i++) {
                 doubled[2 * i] = beats[i];
+                marks[2 * i] = accents[i];
                 if (i + 1 < beats.length) {
                     doubled[2 * i + 1] = (beats[i] + beats[i + 1]) / 2;
                 }
             }
             beats = doubled;
-            phase *= 2;
+            accents = marks;
             bpm = bpm == null ? null : bpm * 2;
         } else if ("half".equals(scale) && beats.length > 1) {
-            int offset = phase % 2;
+            int first = 0;
+            while (first < accents.length && !accents[first]) {
+                first++;
+            }
+            if (first == accents.length) {
+                first = 0;
+            }
             List<Double> kept = new ArrayList<>();
+            List<Boolean> marks = new ArrayList<>();
+            int since = first % 2; // pulsos antes del primer "1": misma paridad que él
             for (int i = 0; i < beats.length; i++) {
-                if (i % 2 == offset) {
-                    kept.add(beats[i]);
+                if (accents[i]) {
+                    since = 0;
                 }
+                if (since % 2 == 0) {
+                    kept.add(beats[i]);
+                    marks.add(accents[i]);
+                }
+                since++;
             }
             beats = new double[kept.size()];
+            accents = new boolean[kept.size()];
             for (int i = 0; i < beats.length; i++) {
                 beats[i] = kept.get(i);
+                accents[i] = marks.get(i);
             }
-            phase /= 2;
             bpm = bpm == null ? null : bpm / 2;
         }
-        int shift = settings == null ? 0 : settings.optInt("downbeatShift", 0);
-        int first = Math.floorMod(phase + shift, perBar);
-        boolean[] accents = new boolean[beats.length];
-        for (int i = 0; i < beats.length; i++) {
-            accents[i] = Math.floorMod(i - first, perBar) == 0;
+        int shift = Math.floorMod(settings == null ? 0 : settings.optInt("downbeatShift", 0), perBar);
+        if (shift != 0) {
+            boolean[] moved = new boolean[beats.length];
+            for (int i = 0; i < beats.length; i++) {
+                int from = i >= shift ? i - shift : i - shift + perBar;
+                moved[i] = from < accents.length && accents[from];
+            }
+            accents = moved;
         }
         return new Grid(beats, accents, perBar, bpm);
     }

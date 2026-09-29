@@ -20,7 +20,7 @@ public final class Analyzer {
 
     private Analyzer() {}
 
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
     static final int SR = Dsp.SR;
     static final int HOP = Dsp.HOP;
     static final String[] TREBLE = {"guitar", "piano", "other"};
@@ -211,6 +211,10 @@ public final class Analyzer {
         sin.mfcc = mfcc;
         sin.mixDb = mixLoud;
         sin.vocalsDb = vocalsDb;
+        sin.tempoStarts = new double[Math.max(0, rhythm.parts.size() - 1)];
+        for (int i = 1; i < rhythm.parts.size(); i++) {
+            sin.tempoStarts[i - 1] = rhythm.parts.get(i).start;
+        }
         List<Sections.Section> sections = Sections.analyze(sin);
         // Un cambio de tonalidad casi siempre coincide con el comienzo de una sección.
         for (Harmony.KeyChange change : harmony.keyChanges) {
@@ -296,6 +300,24 @@ public final class Analyzer {
         return o;
     }
 
+    /**
+     * beats.onset_curve: la curva de ataques en 8 bits (unos 40 KB para 11 minutos), con la que la
+     * aplicación vuelve a acomodar los pulsos a otro tempo que elija el usuario.
+     */
+    static Object onsetCurve(double[] env) throws JSONException {
+        if (env == null || env.length == 0) {
+            return JSONObject.NULL;
+        }
+        double top = Dsp.max(env);
+        byte[] data = new byte[env.length];
+        for (int i = 0; i < env.length; i++) {
+            long q = top > 0 ? Math.round(255 * Math.min(1.0, Math.max(0.0, env[i] / top))) : 0;
+            data[i] = (byte) q;
+        }
+        return new JSONObject().put("fps", Dsp.round(SR / (double) HOP, 6))
+                .put("data", com.moimoi.local.Json.base64(data, data.length));
+    }
+
     static JSONArray numbers(double[] v) throws JSONException {
         JSONArray a = new JSONArray();
         for (double x : v) {
@@ -313,6 +335,12 @@ public final class Analyzer {
         tempo.put("steady", rhythm.steady);
         tempo.put("confidence", rhythm.confidence);
         tempo.put("meterConfidence", rhythm.meterConfidence);
+        JSONArray segments = new JSONArray();
+        for (Rhythm.Part p : rhythm.parts) {
+            segments.put(new JSONObject().put("start", p.start).put("end", p.end).put("bpm", p.bpm)
+                    .put("beatsPerBar", p.beatsPerBar).put("steady", p.steady));
+        }
+        tempo.put("segments", segments);
 
         JSONObject key = keyJson(harmony.key);
         key.put("confidence", Dsp.round(harmony.confidence, 2));
@@ -377,6 +405,7 @@ public final class Analyzer {
         out.put("tempo", tempo);
         out.put("beats", numbers(rhythm.beats));
         out.put("downbeats", numbers(rhythm.downbeats));
+        out.put("onset", onsetCurve(rhythm.onset));
         out.put("key", key);
         out.put("keyStart", keyJson(harmony.keyStart));
         out.put("keyChanges", changes);

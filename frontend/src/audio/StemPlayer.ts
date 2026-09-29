@@ -14,7 +14,14 @@ import SignalsmithStretch, { type StretchNode } from 'signalsmith-stretch'
 import type { MixerChannel } from '../api/types'
 
 const LEAD = 0.04
-const TICK_MS = 30
+const TICK_MS = 50
+/**
+ * Cuánto se programa por adelantado el click y la guía (segundos del reloj de audio). Largo a
+ * propósito: si el celular está ocupado y el temporizador se atrasa, los golpes ya programados
+ * suenan igual (con 0,25 s se perdían golpes y el click quedaba con huecos).
+ */
+const LOOKAHEAD = 1.2
+const LOOKAHEAD_HIDDEN = 3.0
 
 export interface StemSource {
   id: string
@@ -725,7 +732,7 @@ export class StemPlayer {
     const clicks = this.metronomeOn && this.grid.beats.length > 0
     const voices = this.guideOn && this.guide.length > 0
     if (!this.seg.active || (!clicks && !voices)) return
-    const lookahead = document.visibilityState === 'hidden' ? 2.0 : 0.25
+    const lookahead = document.visibilityState === 'hidden' ? LOOKAHEAD_HIDDEN : LOOKAHEAD
     const from = Math.max(this.scheduledUntil, now, this.seg.output)
     const to = now + lookahead
     if (to <= from) return

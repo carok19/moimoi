@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Chord } from '../api/types'
 import type { BeatGrid, StemPlayer } from '../audio/StemPlayer'
 import { useFrame, useSampled } from '../hooks/useFrame'
@@ -29,8 +29,11 @@ export function ChordPanel({ player, chords, grid, transposition }: Props) {
   const dots = useRef<(HTMLElement | null)[]>([])
   const perBar = grid.beatsPerBar || 4
 
+  const lit = useRef(-2)
   useFrame(() => {
     const beat = player.playing && !player.countingIn ? beatInBar(grid, player.position) : -1
+    if (beat === lit.current) return
+    lit.current = beat
     dots.current.forEach((el, i) => el?.classList.toggle('on', i === beat))
   })
 
@@ -88,6 +91,10 @@ export function ChordPanel({ player, chords, grid, transposition }: Props) {
 }
 
 const PPS = 70
+/** Ventana de acordes dibujados: cuánto antes y después de la posición (segundos). */
+const WINDOW_STEP = 8
+const WINDOW_BEHIND = 16
+const WINDOW_AHEAD = 24
 
 export function ChordStrip({ player, chords, downbeats, transposition, onSeek }: {
   player: StemPlayer
@@ -98,12 +105,24 @@ export function ChordStrip({ player, chords, downbeats, transposition, onSeek }:
 }) {
   const container = useRef<HTMLDivElement>(null)
   const rail = useRef<HTMLDivElement>(null)
+  const half = useRef(0)
   const index = useSampled(() => chordIndexAt(chords, player.position + 0.05), 80)
+  // Solo se dibujan los acordes cercanos (la ventana avanza de a 8 s).
+  const windowAt = useSampled(() => Math.floor(player.position / WINDOW_STEP) * WINDOW_STEP, 200)
+  useEffect(() => {
+    const el = container.current
+    if (!el) return
+    const observer = new ResizeObserver(() => { half.current = el.clientWidth / 2 })
+    observer.observe(el)
+    half.current = el.clientWidth / 2
+    return () => observer.disconnect()
+  }, [chords.length])
   useFrame(() => {
-    if (!container.current || !rail.current) return
-    const offset = container.current.clientWidth / 2 - player.position * PPS
-    rail.current.style.transform = `translateX(${offset}px)`
+    if (!rail.current) return
+    rail.current.style.transform = `translateX(${(half.current - player.position * PPS).toFixed(1)}px)`
   })
+  const from = windowAt - WINDOW_BEHIND
+  const to = windowAt + WINDOW_STEP + WINDOW_AHEAD
   if (!chords.length) {
     return <div className="chord-strip" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <span className="small faint">No se detectaron acordes</span>
@@ -112,8 +131,8 @@ export function ChordStrip({ player, chords, downbeats, transposition, onSeek }:
   return (
     <div className="chord-strip" ref={container} aria-label="Acordes de la canción">
       <div className="rail" ref={rail} style={{ width: player.duration * PPS }}>
-        {downbeats.map((t, i) => <div key={`b${i}`} className="bar" style={{ left: t * PPS }} />)}
-        {chords.map((c, i) => (
+        {downbeats.map((t, i) => (t >= from && t <= to ? <div key={`b${i}`} className="bar" style={{ left: t * PPS }} /> : null))}
+        {chords.map((c, i) => (c.end < from || c.start > to ? null : (
           <div
             key={i}
             className={`box${c.quality === 'N' ? ' none' : ''}${i === index ? ' current' : ''}`}
@@ -123,7 +142,7 @@ export function ChordStrip({ player, chords, downbeats, transposition, onSeek }:
           >
             {c.quality === 'N' ? '' : chordLabel(c, transposition)}
           </div>
-        ))}
+        )))}
       </div>
       <div className="needle" />
     </div>

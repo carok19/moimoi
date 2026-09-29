@@ -230,6 +230,38 @@ def _merge(phrases: list[tuple[int, int]], labels: list[int], energy: np.ndarray
     return segments, [order[g] for g in groups]
 
 
+def _consolidate(segments: list[tuple[int, int]], groups: list[int], duration: float
+                 ) -> tuple[list[tuple[int, int]], list[int]]:
+    """Red de seguridad para canciones largas o muy variadas (un popurrí de 11 minutos): si
+    quedaron demasiadas partes (más de una cada ~15 s), la más corta se junta con su vecina (la
+    del mismo tipo si la hay, si no la más corta), hasta que queden las que corresponden."""
+    segments, groups = list(segments), list(groups)
+    limit = max(12, int(round(duration / 15.0)))
+    while len(segments) > limit:
+        lengths = [b - a for a, b in segments]
+        k = int(np.argmin(lengths))
+        left, right = k - 1, k + 1
+        if left >= 0 and groups[left] == groups[k]:
+            other = left
+        elif right < len(segments) and groups[right] == groups[k]:
+            other = right
+        elif left < 0:
+            other = right
+        elif right >= len(segments):
+            other = left
+        else:
+            other = left if lengths[left] <= lengths[right] else right
+        a, b = min(segments[k][0], segments[other][0]), max(segments[k][1], segments[other][1])
+        group = groups[other] if lengths[other] >= lengths[k] else groups[k]
+        first = min(k, other)
+        segments[first:first + 2] = [(a, b)]
+        groups[first:first + 2] = [group]
+    order: dict[int, int] = {}
+    for g in groups:
+        order.setdefault(g, len(order))
+    return segments, [order[g] for g in groups]
+
+
 def analyze_sections(sig: SongSignals, rhythm: dict, treble_chroma: np.ndarray) -> list[dict]:
     import librosa
 
@@ -272,11 +304,17 @@ def analyze_sections(sig: SongSignals, rhythm: dict, treble_chroma: np.ndarray) 
     novelty = _checkerboard_novelty(np.hstack([local, 1.5 * _zscore(chroma_bars)]),
                                     half=4 if n_bars >= 24 else 2)
     cuts = _strong_cuts(novelty, vocal, n_bars)
+    # Donde cambia el tempo (en un popurrí, donde empieza otra canción) también se corta.
+    for part in (rhythm.get("segments") or [])[1:]:
+        bar = int(np.searchsorted(bounds, float(part["start"]) - 0.05))
+        if 0 < bar < n_bars and bar not in cuts:
+            cuts = sorted(cuts + [bar])
     phrases = _phrases(n_bars, cuts, chroma_bars)
     labels = _cluster(phrases, chroma_bars, local)
     sigma = _timbre_sigma(phrases, local)
     segments, groups = _merge(phrases, labels, energy, vocal,
                               lambda p, q: _phrase_similarity(chroma_bars, local, p, q, sigma))
+    segments, groups = _consolidate(segments, groups, duration)
 
     seg_vocal = np.array([vocal[a:b].mean() for a, b in segments])
     seg_energy = np.array([energy[a:b].mean() for a, b in segments])

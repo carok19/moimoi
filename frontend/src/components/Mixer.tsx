@@ -41,18 +41,18 @@ interface Props {
 export function Mixer({ player, stems, peaks, instruments, mixer, duration, band, onChange, onReplace, extras = [] }: Props) {
   const meters = useRef<Record<string, HTMLDivElement | null>>({})
   const lines = useRef<Record<string, HTMLDivElement | null>>({})
-  const waves = useRef<Record<string, HTMLDivElement | null>>({})
   const anySolo = stems.some((s) => mixer[s.id]?.solo)
 
+  // Solo transformaciones (las hace la placa de video): nada de medir ni de cambiar anchos en cada
+  // cuadro, que obliga a recalcular la página y en el celular se nota.
   useFrame(() => {
     const levels = player.levels()
     const p = duration > 0 ? player.position / duration : 0
     for (const s of stems) {
       const meter = meters.current[s.id]
-      if (meter) meter.style.width = `${(levels[s.id] ?? 0) * 100}%`
+      if (meter) meter.style.transform = `scaleX(${(levels[s.id] ?? 0).toFixed(3)})`
       const line = lines.current[s.id]
-      const wave = waves.current[s.id]
-      if (line && wave) line.style.transform = `translateX(${p * wave.clientWidth}px)`
+      if (line) line.style.transform = `translateX(${(p * 100).toFixed(3)}%)`
     }
   })
 
@@ -105,7 +105,6 @@ export function Mixer({ player, stems, peaks, instruments, mixer, duration, band
             onChange={(patch) => onChange(stem.id, patch)}
             meterRef={(el) => { meters.current[stem.id] = el }}
             lineRef={(el) => { lines.current[stem.id] = el }}
-            waveRef={(el) => { waves.current[stem.id] = el }}
           />
         )
       })}
@@ -149,10 +148,9 @@ interface RowProps {
   onChange: (patch: Partial<MixerChannel>) => void
   meterRef: (el: HTMLDivElement | null) => void
   lineRef: (el: HTMLDivElement | null) => void
-  waveRef: (el: HTMLDivElement | null) => void
 }
 
-function StemRow({ stem, state, audible, info, peaks, duration, onChange, meterRef, lineRef, waveRef }: RowProps) {
+function StemRow({ stem, state, audible, info, peaks, duration, onChange, meterRef, lineRef }: RowProps) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const box = useRef<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(0)
@@ -189,9 +187,9 @@ function StemRow({ stem, state, audible, info, peaks, duration, onChange, meterR
         <button className={`solo${state.solo ? ' on' : ''}`} onClick={() => onChange({ solo: !state.solo })}
           title="Escuchar solo esta pista" aria-pressed={state.solo}>S</button>
       </div>
-      <div className="stem-wave" ref={(el) => { box.current = el; waveRef(el) }}>
+      <div className="stem-wave" ref={box}>
         <canvas ref={canvas} />
-        <div className="playline" ref={lineRef} />
+        <div className="playhead-track" ref={lineRef}><div className="playline" /></div>
       </div>
       <div className="stem-controls">
         <div className="vol">

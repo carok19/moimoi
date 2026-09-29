@@ -83,6 +83,15 @@ public final class Beats {
     }
 
     public static int[] track(double[] env, int sr, int hop, double bpm, double tightness) {
+        return track(env, sr, hop, new double[] {bpm}, tightness);
+    }
+
+    /**
+     * Con tempo variable (bpm.length == env.length, un tempo por cuadro), como beat_track de
+     * librosa con bpm = arreglo: la ventana del puntaje local y la búsqueda del pulso anterior usan
+     * el tempo de cada cuadro. Con un solo valor es el tempo fijo de siempre.
+     */
+    public static int[] track(double[] env, int sr, int hop, double[] bpm, double tightness) {
         int n = env.length;
         boolean any = false;
         for (double v : env) {
@@ -95,7 +104,11 @@ public final class Beats {
             return new int[0];
         }
         double frameRate = sr / (double) hop;
-        double fpb = Math.rint(frameRate * 60.0 / bpm); // np.round: al par más cercano
+        boolean varying = bpm.length == n && n > 1;
+        double[] fpbs = new double[varying ? n : 1];
+        for (int i = 0; i < fpbs.length; i++) {
+            fpbs[i] = Math.rint(frameRate * 60.0 / bpm[i]); // np.round: al par más cercano
+        }
         // Normalizar (desvío con ddof = 1).
         double m = 0;
         for (double v : env) {
@@ -111,16 +124,24 @@ public final class Beats {
         for (int i = 0; i < n; i++) {
             onsets[i] = env[i] / norm;
         }
-        // Puntaje local: convolución con una gaussiana del ancho de un pulso.
-        int kLen = (int) (2 * fpb + 1);
-        double[] window = new double[kLen];
-        for (int k = 0; k < kLen; k++) {
-            double x = (k - fpb) * 32.0 / fpb;
-            window[k] = Math.exp(-0.5 * x * x);
-        }
+        // Puntaje local: convolución con una gaussiana del ancho de un pulso (con tempo variable,
+        // la del tempo de cada cuadro).
+        java.util.Map<Integer, double[]> windows = new java.util.HashMap<>();
         double[] local = new double[n];
-        int halfK = kLen / 2;
         for (int i = 0; i < n; i++) {
+            double fpb = fpbs[varying ? i : 0];
+            double[] window = windows.get((int) fpb);
+            if (window == null) {
+                int kLen = (int) (2 * fpb + 1);
+                window = new double[kLen];
+                for (int k = 0; k < kLen; k++) {
+                    double x = (k - fpb) * 32.0 / fpb;
+                    window[k] = Math.exp(-0.5 * x * x);
+                }
+                windows.put((int) fpb, window);
+            }
+            int kLen = window.length;
+            int halfK = kLen / 2;
             double acc = 0;
             int kFrom = Math.max(0, i + halfK - n + 1);
             int kTo = Math.min(i + halfK, kLen);
@@ -140,9 +161,10 @@ public final class Beats {
         boolean first = true;
         backlink[0] = -1;
         cum[0] = local[0];
-        int from = (int) Math.rint(fpb / 2);
-        double logFpb = Math.log(fpb);
         for (int i = 0; i < n; i++) {
+            double fpb = fpbs[varying ? i : 0];
+            int from = (int) Math.rint(fpb / 2);
+            double logFpb = Math.log(fpb);
             double bestScore = Double.NEGATIVE_INFINITY;
             int loc = -1;
             int stop = (int) (i - 2 * fpb - 1);

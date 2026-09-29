@@ -39,6 +39,23 @@ export interface Section {
   vocals?: boolean
 }
 
+export interface TempoSegment {
+  start: number
+  end: number
+  bpm: number
+  beatsPerBar: number
+  steady: boolean
+}
+
+/** Corrección del usuario para un tramo de tempo (el que empieza en `start`). */
+export interface TempoEdit {
+  start: number
+  /** Tempo elegido (BPM); sin él, el detectado. */
+  bpm?: number
+  /** Mueve el "1" del compás n pulsos en ese tramo. */
+  shift?: number
+}
+
 export interface SongSettings {
   mixer?: Partial<Record<StemId, MixerChannel>>
   tempo?: number
@@ -51,6 +68,10 @@ export interface SongSettings {
   beatScale?: 'double' | 'half' | null
   /** Desplaza el "1" del compás n pulsos. */
   downbeatShift?: number
+  /** Correcciones del tempo por tramo (las hace el panel de Tempo del reproductor). */
+  tempoEdits?: TempoEdit[]
+  /** La grilla final con esas correcciones, para el click y la guía del paquete (null = la del análisis). */
+  grid?: { beats: number[]; downbeats: number[]; bpm: number | null } | null
   masterVolume?: number
   [key: string]: unknown
 }
@@ -120,10 +141,22 @@ export interface PlayerGuide {
 export interface Analysis {
   version: number
   duration: number
-  tempo: { bpm: number | null; beatsPerBar: number; steady: boolean; confidence: number; meterConfidence: number }
+  tempo: {
+    bpm: number | null
+    beatsPerBar: number
+    steady: boolean
+    confidence: number
+    meterConfidence: number
+    /** Tramos de tempo (análisis nuevos): uno solo si la canción no cambia de tempo. */
+    segments?: TempoSegment[]
+  }
   beats: number[]
   downbeats: number[]
+  /** Curva de ataques (8 bits en base64) para volver a acomodar los pulsos a otro tempo. */
+  onset?: { fps: number; data: string } | null
   key: KeyInfo
+  /** Tonalidad del comienzo (con cambios de tonalidad puede no ser la principal). */
+  keyStart?: KeyInfo
   keyChanges: (KeyInfo & { time: number })[]
   tuning: { a4: number; cents: number }
   chords: Chord[]

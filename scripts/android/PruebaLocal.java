@@ -295,7 +295,7 @@ public class PruebaLocal {
 
         // ---- análisis (tempo, compás, tonalidad, acordes, partes, instrumentos)
         JSONObject analysis = call(b, "GET", "/api/songs/" + six.getString("id") + "/analysis", null, 200);
-        check(analysis.getInt("version") == 1 && Math.abs(analysis.getDouble("duration") - six.getDouble("duration")) < 0.01,
+        check(analysis.getInt("version") == com.moimoi.analysis.Analyzer.VERSION && Math.abs(analysis.getDouble("duration") - six.getDouble("duration")) < 0.01,
                 "análisis: versión y duración " + analysis.optDouble("duration"));
         check(analysis.getJSONObject("instruments").length() == 6 && analysis.getJSONObject("key").has("label")
                 && analysis.getJSONArray("sections").length() >= 1 && analysis.getJSONArray("chords").length() >= 1
@@ -355,6 +355,45 @@ public class PruebaLocal {
         } else {
             check(job.getString("status").equals("error") && job.getString("error").contains("pulso"), "click sin pulso: " + job);
         }
+        // Tempo corregido en el reproductor (la grilla queda guardada en la canción): el click del
+        // paquete va en esos pulsos, no en los del análisis.
+        double songLength = six.getDouble("duration");
+        JSONArray customBeats = new JSONArray(), customDowns = new JSONArray();
+        java.util.List<Double> gridBeats = new java.util.ArrayList<>();
+        for (double t = 0.5; t < songLength - 0.3; t += 0.6) {
+            gridBeats.add(t);
+            customBeats.put(t);
+            if (gridBeats.size() % 4 == 1) {
+                customDowns.put(t);
+            }
+        }
+        call(b, "PATCH", "/api/songs/" + six.getString("id"), new JSONObject().put("settings", new JSONObject().put("grid",
+                new JSONObject().put("beats", customBeats).put("downbeats", customDowns).put("bpm", 100))).toString(), 200);
+        job = waitJob(b, call(b, "POST", "/api/songs/" + six.getString("id") + "/exports",
+                "{\"type\":\"multitrack\",\"click\":true}", 200).getString("id"), 60);
+        check(job.getString("status").equals("done"), "paquete con el tempo corregido: " + job);
+        float[] clickSamples = readWav(unzip(b.resolveDownload(job.getString("downloadUrl"), null).file).get("Click.wav"))[0];
+        java.util.List<Double> onsets = new java.util.ArrayList<>();
+        int quiet = 0;
+        for (int i = 0; i < clickSamples.length; i++) {
+            if (Math.abs(clickSamples[i]) > 0.05) {
+                if (quiet > 2205) {
+                    onsets.add(i / 44100.0);
+                }
+                quiet = 0;
+            } else {
+                quiet++;
+            }
+        }
+        if (!onsets.isEmpty() && onsets.get(0) < 0.05 && gridBeats.get(0) > 0.1) {
+            onsets.remove(0);
+        }
+        boolean aligned = onsets.size() == gridBeats.size();
+        for (int i = 0; aligned && i < onsets.size(); i++) {
+            aligned = Math.abs(onsets.get(i) - gridBeats.get(i)) < 0.01;
+        }
+        check(aligned, "el click del paquete sigue el tempo corregido: " + onsets.size() + " golpes, se esperaban " + gridBeats.size());
+        call(b, "PATCH", "/api/songs/" + six.getString("id"), "{\"settings\":{\"grid\":null}}", 200);
         // ---- voz guía: un paquete .zip (español, números, sonidos de click y cosas que no son voces)
         File packDir = new File(root, "paquete");
         packDir.mkdirs();
@@ -554,9 +593,125 @@ public class PruebaLocal {
         } else {
             System.out.println("(no está recursos/voz-guia: no se prueban las voces incluidas)");
         }
+        // ---- popurrí con cambios de tempo (el click sigue cada tempo)
+        probarMapaDeTempo();
         System.out.printf("OK: %d comprobaciones en %.1f s%n", checks, (System.currentTimeMillis() - t0) / 1000.0);
         deleteTree(root);
         System.exit(0);
+    }
+
+    /**
+     * Golpes de batería como los de las canciones sintéticas de las pruebas de la computadora
+     * (tests/synth.py): bombo con barrido de tono, redoblante (ruido + 190 Hz) y platillo.
+     */
+    static void drumHit(float[] track, double t, String kind, java.util.Random rng) {
+        int sr = 22050;
+        int start = (int) Math.round(t * sr);
+        int length = (int) ((kind.equals("hat") ? 0.05 : kind.equals("snare") ? 0.18 : 0.25) * sr);
+        double prev = 0;
+        for (int i = 0; i < length && start + i < track.length; i++) {
+            double x = i / (double) sr;
+            double v;
+            if (kind.equals("kick")) {
+                double body = (Math.sin(2 * Math.PI * 55 * x) + 0.5 * Math.sin(2 * Math.PI * 110 * x)) * Math.exp(-x / 0.08);
+                double sweep = 0.6 * Math.sin(2 * Math.PI * (150 * Math.exp(-x * 25) + 45) * x) * Math.exp(-x / 0.07);
+                v = 0.9 * (body + sweep);
+            } else if (kind.equals("snare")) {
+                v = 0.35 * rng.nextGaussian() * Math.exp(-x / 0.05) + 0.2 * Math.sin(2 * Math.PI * 190 * x) * Math.exp(-x / 0.04);
+            } else {
+                double noise = rng.nextGaussian() * Math.exp(-x / 0.012);
+                v = 0.12 * (noise - prev); // "pasa-altos" barato
+                prev = noise;
+            }
+            track[start + i] += (float) (v * Math.min(1, x / 0.001));
+        }
+    }
+
+    /**
+     * Dos canciones seguidas a 100 y 140 BPM (batería, bajo y acordes sintéticos): el análisis del
+     * celular tiene que encontrar los dos tramos y poner los pulsos en los dos tempos.
+     */
+    static void probarMapaDeTempo() throws Exception {
+        java.util.List<Double> truth = new java.util.ArrayList<>();
+        Map<String, float[]> stems = popurri(truth);
+        double part = 60.0;
+        com.moimoi.analysis.Analyzer.Source source = new com.moimoi.analysis.Analyzer.Source() {
+            public int length(String stem) {
+                return stems.get(stem).length;
+            }
+
+            public float[] load(String stem, int max) {
+                float[] v = stems.get(stem);
+                return max >= 0 && max < v.length ? java.util.Arrays.copyOf(v, max) : v.clone();
+            }
+        };
+        JSONObject a = com.moimoi.analysis.Analyzer.analyze(java.util.Arrays.asList("drums", "bass", "other"), source, (f, m) -> {});
+        JSONArray segments = a.getJSONObject("tempo").getJSONArray("segments");
+        System.out.println("mapa de tempo: " + segments);
+        check(segments.length() == 2 && Math.abs(segments.getJSONObject(0).getDouble("bpm") - 100) < 1.5
+                && Math.abs(segments.getJSONObject(1).getDouble("bpm") - 140) < 1.5, "dos tramos: 100 y 140 BPM");
+        check(segments.length() == 2 && Math.abs(segments.getJSONObject(1).getDouble("start") - part) < 4.0,
+                "el cambio de tempo en su lugar: " + (segments.length() > 1 ? segments.getJSONObject(1).getDouble("start") : -1));
+        JSONArray beats = a.getJSONArray("beats");
+        int near = 0;
+        for (double b : truth) {
+            double best = Double.POSITIVE_INFINITY;
+            for (int i = 0; i < beats.length(); i++) {
+                best = Math.min(best, Math.abs(beats.getDouble(i) - b));
+            }
+            if (best < 0.03) {
+                near++;
+            }
+        }
+        check(near > 0.9 * truth.size(), "los pulsos siguen los dos tempos: " + near + " de " + truth.size());
+    }
+
+    static Map<String, float[]> popurri() {
+        return popurri(new java.util.ArrayList<>());
+    }
+
+    /** Pistas (22,05 kHz) de dos canciones seguidas a 100 y 140 BPM; truth recibe los pulsos reales. */
+    static Map<String, float[]> popurri(java.util.List<Double> truth) {
+        int sr = 22050;
+        double[] tempos = {100.0, 140.0};
+        double part = 60.0;
+        int n = (int) (sr * part * tempos.length);
+        float[] drums = new float[n], bass = new float[n], other = new float[n];
+        java.util.Random rng = new java.util.Random(7);
+        int[] roots = {0, 7, 9, 5};
+        double t = 0.5;
+        int beat = 0;
+        for (int p = 0; p < tempos.length; p++) {
+            double period = 60.0 / tempos[p];
+            double end = part * (p + 1) - 0.05;
+            int first = beat;
+            while (t < end) {
+                truth.add(t);
+                int inBar = (beat - first) % 4;
+                drumHit(drums, t, inBar == 0 || inBar == 2 ? "kick" : "snare", rng);
+                drumHit(drums, t, "hat", rng);
+                drumHit(drums, t + period / 2, "hat", rng);
+                double root = 55.0 * Math.pow(2, (roots[((beat - first) / 4) % 4] + 2 * p) / 12.0);
+                int start = (int) Math.round(t * sr);
+                int length = (int) (period * sr);
+                for (int i = 0; i < length && start + i < n; i++) {
+                    double env = Math.exp(-i / (0.25 * sr));
+                    bass[start + i] += (float) (0.35 * env * Math.sin(2 * Math.PI * root * i / sr));
+                    double chord = 0;
+                    for (int iv : new int[] {0, 4, 7}) {
+                        chord += Math.sin(2 * Math.PI * root * 4 * Math.pow(2, iv / 12.0) * i / sr);
+                    }
+                    other[start + i] += (float) (0.08 * Math.exp(-i / (0.4 * sr)) * chord);
+                }
+                t += period;
+                beat++;
+            }
+        }
+        Map<String, float[]> stems = new HashMap<>();
+        stems.put("drums", drums);
+        stems.put("bass", bass);
+        stems.put("other", other);
+        return stems;
     }
 
     static java.util.Set<String> ids(JSONArray list, String field) throws Exception {

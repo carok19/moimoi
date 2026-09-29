@@ -39,6 +39,7 @@ final class Sections {
         float[][] mfcc;          // [cuadro][13] de la mezcla
         double[] mixDb;          // rms_db(mezcla, 2048, HOP)
         double[] vocalsDb;       // rms_db(voz, 2048, HOP) o null
+        double[] tempoStarts = new double[0]; // dónde empieza cada tramo de tempo (menos el primero)
     }
 
     // ---- compases ---------------------------------------------------------------------------------
@@ -561,6 +562,62 @@ final class Sections {
         return m;
     }
 
+    /**
+     * _consolidate: red de seguridad para canciones largas o muy variadas (un popurrí de 11
+     * minutos): si quedaron demasiadas partes (más de una cada ~15 s), la más corta se junta con su
+     * vecina (la del mismo tipo si la hay, si no la más corta), hasta que queden las que corresponden.
+     */
+    static Merged consolidate(Merged m, double duration) {
+        List<int[]> segments = new ArrayList<>(m.segments);
+        List<Integer> groups = new ArrayList<>(m.groups);
+        int limit = Math.max(12, (int) Math.rint(duration / 15.0));
+        while (segments.size() > limit) {
+            int k = 0;
+            for (int i = 1; i < segments.size(); i++) {
+                if (segments.get(i)[1] - segments.get(i)[0] < segments.get(k)[1] - segments.get(k)[0]) {
+                    k = i;
+                }
+            }
+            int left = k - 1, right = k + 1;
+            int other;
+            if (left >= 0 && groups.get(left).equals(groups.get(k))) {
+                other = left;
+            } else if (right < segments.size() && groups.get(right).equals(groups.get(k))) {
+                other = right;
+            } else if (left < 0) {
+                other = right;
+            } else if (right >= segments.size()) {
+                other = left;
+            } else {
+                int ll = segments.get(left)[1] - segments.get(left)[0];
+                int lr = segments.get(right)[1] - segments.get(right)[0];
+                other = ll <= lr ? left : right;
+            }
+            int lk = segments.get(k)[1] - segments.get(k)[0];
+            int lo = segments.get(other)[1] - segments.get(other)[0];
+            int a = Math.min(segments.get(k)[0], segments.get(other)[0]);
+            int b = Math.max(segments.get(k)[1], segments.get(other)[1]);
+            int group = lo >= lk ? groups.get(other) : groups.get(k);
+            int first = Math.min(k, other);
+            segments.remove(first + 1);
+            segments.set(first, new int[] {a, b});
+            groups.remove(first + 1);
+            groups.set(first, group);
+        }
+        Map<Integer, Integer> order = new HashMap<>();
+        List<Integer> renumbered = new ArrayList<>();
+        for (int g : groups) {
+            if (!order.containsKey(g)) {
+                order.put(g, order.size());
+            }
+            renumbered.add(order.get(g));
+        }
+        Merged out = new Merged();
+        out.segments = segments;
+        out.groups = renumbered;
+        return out;
+    }
+
     // ---- análisis completo ------------------------------------------------------------------------------
 
     static List<Section> analyze(Input in) {
@@ -666,11 +723,23 @@ final class Sections {
         }
         double[] novelty = checkerboardNovelty(feats, nBars >= 24 ? 4 : 2);
         List<Integer> cuts = strongCuts(novelty, vocal, nBars);
+        // Donde cambia el tempo (en un popurrí, donde empieza otra canción) también se corta.
+        for (double t : in.tempoStarts) {
+            int bar = 0;
+            while (bar < bounds.length && bounds[bar] < t - 0.05) {
+                bar++;
+            }
+            if (bar > 0 && bar < nBars && !cuts.contains(bar)) {
+                cuts.add(bar);
+                Collections.sort(cuts);
+            }
+        }
         List<int[]> phrases = phrases(nBars, cuts, chromaBars);
         int[] labels = cluster(phrases, chromaBars, local);
         final double sigma = timbreSigma(phrases, local);
         final double[][] cb = chromaBars, lc = local;
-        Merged merged = merge(phrases, labels, energy, vocal, (p, q) -> phraseSimilarity(cb, lc, p, q, sigma));
+        Merged merged = consolidate(merge(phrases, labels, energy, vocal, (p, q) -> phraseSimilarity(cb, lc, p, q, sigma)),
+                duration);
 
         int n = merged.segments.size();
         double[] segVocal = new double[n];

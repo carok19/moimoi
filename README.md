@@ -27,7 +27,7 @@ prefieres, la app también puede usar MoiMoi de la computadora.
 | **Mezclador** | Volumen, paneo, mute y solo por pista, medidores, forma de onda de cada instrumento y **Tocar con mi banda**. |
 | **Velocidad y tono** | Velocidad de 50 % a 150 % sin cambiar el tono y tono de −12 a +12 semitonos sin cambiar la velocidad, en tiempo real y con todas las pistas sincronizadas. Botón **La 440** si la grabación está desafinada respecto de 440 Hz. |
 | **Acordes** | Acorde actual y siguiente, tira de acordes de toda la canción, diagramas de guitarra y piano. Se transportan con el tono. Notación C D E o Do Re Mi. Detecta inversiones (G/B). |
-| **Tempo y compás** | BPM, pulsos y el "1" de cada compás (4/4 y 3/4), metrónomo sobre el pulso real de la canción y cuenta antes de empezar. Si el pulso quedó al doble o a la mitad, se corrige con un clic. |
+| **Tempo y compás** | BPM, pulsos y el "1" de cada compás (4/4 y 3/4), metrónomo sobre el pulso real de la canción y cuenta antes de empezar. Detecta los **cambios de tempo** (un popurrí, una parte más lenta): el click sigue cada tempo y el reproductor muestra el de la parte que suena. En el panel de **Tempo** se escribe el BPM de una parte, se marca tocando al ritmo, se pasa al doble o a la mitad, se mueve el "1" o se busca el BPM en internet; el click se vuelve a acomodar a los golpes de la música y el paquete para Multitrack usa lo mismo. |
 | **Tonalidad** | Tonalidad principal y **cambios de tonalidad** (p. ej. el último coro un tono más arriba). |
 | **Partes** | Intro, verso, pre-coro, coro, puente, instrumental y final, detectados automáticamente y **renombrables**. Clic para ir, doble clic para repetir esa parte. Loops arrastrando sobre la forma de onda (se ajustan al pulso). |
 | **Instrumentos** | Qué instrumentos suenan, cuánto y en qué partes de la canción. |
@@ -129,10 +129,14 @@ real) y en **Exportar** armas las pistas sueltas, la mezcla o el paquete `.zip` 
 **Compartir** abre el menú de Android (WhatsApp, Drive, correo…) y **Guardar en el celular** lo deja en
 *Descargas/MoiMoi*.
 
-Después de separar, la app analiza la canción en el mismo celular, igual que en la computadora: tempo (BPM),
-compás, tonalidad y cambios de tonalidad, acordes (con inversiones), partes (intro, verso, coro, puente…) e
-instrumentos. Con eso el reproductor muestra los acordes y las partes, y el paquete para Multitrack puede llevar
-el click y la cuenta inicial.
+Después de separar, la app analiza la canción en el mismo celular, igual que en la computadora: tempo (BPM) y
+cambios de tempo, compás, tonalidad y cambios de tonalidad, acordes (con inversiones), partes (intro, verso, coro,
+puente…) e instrumentos. Con eso el reproductor muestra los acordes y las partes, y el paquete para Multitrack puede
+llevar el click y la cuenta inicial. Las canciones analizadas con una versión anterior se pueden volver a analizar
+(*… → Volver a analizar*) para que detecte los cambios de tempo.
+
+A velocidad normal y en el tono original, el reproductor pasa las pistas tal cual, sin el procesador de velocidad y
+tono (casi no usa el procesador del celular); al cambiar la velocidad o el tono entra el procesador, sin saltos.
 
 **Click y voz guía incluidos:** la app ya trae las voces guía (español, inglés, portugués y francés) y 8 sonidos de
 click (Classic, Blip, Cowbell, Woodblock…); se instalan solas la primera vez, sin cargar nada. En el reproductor,
@@ -372,7 +376,7 @@ mitad de RAM.
   privados de apps comerciales: en algunas mezclas quedan restos de un instrumento en otra pista. El piano
   del modelo de 6 pistas es el más difícil.
 - Acordes, tonalidad, compases y partes son estimaciones automáticas: revísalos. Puedes renombrar las partes
-  y corregir el pulso (×2, ÷2, mover el "1").
+  y corregir el tempo de cada parte (escribir el BPM, marcarlo tocando, ×2, ÷2, mover el "1").
 - YouTube cambia seguido. Si deja de descargar, actualiza yt-dlp:
   `.venv/bin/pip install -U "yt-dlp[default]"`. Para YouTube hace falta Deno o Node.js instalado (MoiMoi usa
   Node.js si no encuentra Deno).
