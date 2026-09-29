@@ -142,7 +142,7 @@ tono para quien canta), en *Exportar* marca **Aplicar los cambios actuales**: la
 acordes y la tonalidad del paquete salen con esos cambios, y el nombre del archivo lo dice ("en A, 90%").
 
 Todavía no están en la app del celular (sí en la computadora): links y búsqueda de YouTube, MP3, y la letra
-automática. Llegan en las próximas versiones.
+automática.
 
 **Usar la computadora desde la app (opcional):** en *Ajustes → Celular o computadora → Usar MoiMoi de la
 computadora* la app se conecta a MoiMoi en una computadora de la **misma red WiFi** (más rápido con tarjeta
@@ -161,7 +161,9 @@ primera vez que abres MoiMoi aparece el aviso del Firewall: elige **Permitir** (
 Celulares y tablets* se puede desactivar el acceso desde otros equipos (por ejemplo en una red pública).
 
 Los celulares tienen menos memoria: una canción de 6 pistas usa unos 65 MB por minuto en el reproductor, y la
-separación necesita alrededor de 1 GB libre mientras trabaja (conviene cerrar otras apps pesadas).
+separación necesita alrededor de 1 GB libre mientras trabaja (conviene cerrar otras apps pesadas). Si una canción
+larga no entra en la memoria del celular, el reproductor la carga a 22 kHz (y si hace falta en mono) y lo avisa;
+lo que exportas sale siempre en calidad completa.
 
 ---
 
