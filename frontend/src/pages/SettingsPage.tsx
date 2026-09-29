@@ -243,7 +243,7 @@ export function SettingsPage() {
                 <Feature ok={health.engine.available} label="Separación de pistas (Demucs)" hint="Ejecuta el instalador: iniciar.bat / ./iniciar.sh" />
                 <Feature ok={health.features.youtube} label="Links de YouTube y otros sitios (yt-dlp)" hint='pip install -U "yt-dlp[default]"' />
                 <Feature ok={health.features.ffmpeg} label="Lectura de cualquier formato de audio o video (ffmpeg)" hint="pip install imageio-ffmpeg" />
-                <Feature ok={health.features.stretchExport} label="Exportar con otra velocidad o tono" hint="pip install pedalboard" />
+                <Feature ok={health.features.stretchExport} label="Exportar con otra velocidad o tono" hint="actualiza MoiMoi" />
                 <Feature ok={health.features.lyrics} label="Transcripción de letras (opcional)" hint="pip install faster-whisper" />
               </div>}
             </>

@@ -129,12 +129,6 @@ def _check_preset(preset: str, quality: str) -> None:
 @router.get("/health")
 def health(request: Request):
     state = _state(request)
-    try:
-        import pedalboard  # noqa: F401
-
-        stretch_ok = True
-    except ImportError:
-        stretch_ok = False
     return {
         "ok": True,
         "app": "MoiMoi",
@@ -143,7 +137,7 @@ def health(request: Request):
         "features": {
             "youtube": ingest.ytdlp_available(),
             "lyrics": state.transcriber is not None,
-            "stretchExport": stretch_ok,
+            "stretchExport": True,  # moimoi.stretch (numpy/scipy): siempre disponible
             "ffmpeg": audio_io.find_ffmpeg() is not None,
         },
         "dataDir": str(state.cfg.data_dir),

@@ -123,18 +123,16 @@ def soft_limit(audio: np.ndarray, ceiling: float = 0.97) -> np.ndarray:
 
 
 def stretch(audio: np.ndarray, tempo: float, semitones: float) -> np.ndarray:
-    """Cambia velocidad (tempo=0.8 -> 80 %) y tono (semitonos) sin afectar el otro."""
-    if abs(tempo - 1.0) < 1e-3 and abs(semitones) < 1e-3:
+    """Cambia velocidad (tempo=0.8 -> 80 %) y tono (semitonos) sin afectar el otro.
+
+    Mismo método que la app del celular (moimoi.stretch): queda alineado con el click y la guía
+    de principio a fin (Rubber Band en tiempo real se iba corriendo hasta ~0,15 %).
+    """
+    from . import stretch as stretcher
+
+    if not stretcher.needed(tempo, semitones):
         return audio
-    try:
-        import pedalboard
-    except ImportError as exc:
-        raise ExportError("Para exportar con otra velocidad o tono hace falta 'pip install pedalboard'.") from exc
-    result = pedalboard.time_stretch(
-        np.ascontiguousarray(audio, dtype=np.float32), SAMPLE_RATE,
-        stretch_factor=float(tempo), pitch_shift_in_semitones=float(semitones), high_quality=True,
-    )
-    return np.asarray(result, dtype=np.float32)
+    return stretcher.stretch(audio, float(tempo), float(semitones))
 
 
 # ---- click -----------------------------------------------------------------------------

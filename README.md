@@ -369,6 +369,6 @@ mitad de RAM.
 
 Demucs (MIT), PyTorch (BSD), Signalsmith Stretch (MIT), yt-dlp (Unlicense), librosa (ISC), FastAPI (MIT),
 React (MIT), Lucide (ISC), Capacitor (MIT), qrcode-generator (MIT), cryptography (Apache-2.0/BSD), FFmpeg
-(LGPL/GPL, vía imageio-ffmpeg), lameenc (LGPL) y pedalboard (GPL-3.0,
-incluye Rubber Band; se usa para exportar con otra velocidad o tono). Si distribuyes MoiMoi, respeta esas
-licencias.
+(LGPL/GPL, vía imageio-ffmpeg), lameenc (LGPL) y ONNX Runtime (MIT, en la app del celular). El cambio de
+velocidad y tono al exportar es propio de MoiMoi (moimoi/stretch.py y su versión en Java para el celular). Si
+distribuyes MoiMoi, respeta esas licencias.
