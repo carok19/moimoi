@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, Download, Loader2, Package, Send, Share2 } from 'lucide-react'
 import { api, waitForJob } from '../api/client'
 import { isStandalone } from '../api/base'
@@ -60,6 +60,7 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState<SendResult | null>(null)
   const [transfer, setTransfer] = useState<{ label: string; fraction: number } | null>(null)
+  const status = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     api.guide().then(setKit).catch(() => setKit(null))
@@ -70,6 +71,11 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
   const activeSet = kit?.sets.find((s) => s.active)
   const clickStyle = kit?.clicks.find((c) => c.id === settings.exportClickSound)
   const result = job?.status === 'done' ? job.result : null
+
+  // El avance y el resultado quedan al final del contenido: se muestran sin que haya que bajar.
+  useEffect(() => {
+    if (job) status.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [job?.id, job?.status, tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = (id: StemId) =>
     setSelected((cur) => (cur.includes(id) ? cur.filter((s) => s !== id) : [...cur, id]))
@@ -110,8 +116,6 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
         if (!multitrack && !isNativeApp) {
           void saveFile(done.downloadUrl, done.result.name)
           toast.show('Exportación lista: descargando…', 'ok')
-        } else {
-          toast.show('Exportación lista', 'ok')
         }
       } else if (done.status === 'error') {
         toast.show(done.error || 'No se pudo exportar', 'err')
@@ -203,12 +207,14 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
           <button className="btn" onClick={onClose}>Cerrar</button>
           <button className={`btn${result && jobTab === tab ? '' : ' primary'}`} disabled={busy} onClick={() => void run()}>
             {busy ? <Loader2 size={16} className="spin" /> : tab === 'multitrack' ? <Package size={16} /> : <Download size={16} />}
-            {tab === 'multitrack' ? 'Crear paquete para Multitrack' : tab === 'stems' ? 'Descargar pistas (.zip)' : 'Descargar mezcla'}
+            {tab === 'multitrack' ? <>Crear paquete<span className="wide-only">&nbsp;para Multitrack</span></>
+              : tab === 'stems' ? <>{isNativeApp ? 'Exportar' : 'Descargar'} pistas<span className="wide-only">&nbsp;(.zip)</span></>
+                : isNativeApp ? 'Exportar mezcla' : 'Descargar mezcla'}
           </button>
         </>
       }
     >
-      <div className="segmented" role="tablist">
+      <div className="segmented tabs" role="tablist">
         <button className={tab === 'multitrack' ? 'active' : ''} onClick={() => setTab('multitrack')}>Multitrack (AI Tracks)</button>
         <button className={tab === 'stems' ? 'active' : ''} onClick={() => setTab('stems')}>Pistas sueltas</button>
         <button className={tab === 'mix' ? 'active' : ''} onClick={() => setTab('mix')}>Mezcla actual</button>
@@ -218,8 +224,10 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
         <>
           <p className="small muted" style={{ margin: 0 }}>
             Un <b>.zip</b> listo para <b>Multitrack Alabanza</b>: una pista por instrumento, el <b>Click</b>, la
-            <b> Guía</b> (voz que anuncia cada parte) y las partes de la canción como marcadores. Se envía directo,
-            se comparte por WhatsApp o se abre con <i>Cargar canción (.zip)</i>.
+            <b> Guía</b> (voz que anuncia cada parte) y las partes de la canción como marcadores.{' '}
+            {standalone
+              ? <>Compártelo por WhatsApp o guárdalo en el celular, y en Multitrack Alabanza ábrelo con <i>Cargar canción (.zip)</i>.</>
+              : <>Se envía directo, se comparte por WhatsApp o se abre con <i>Cargar canción (.zip)</i>.</>}
           </p>
           {stemPicker}
           <label className="toggle">
@@ -328,7 +336,8 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
         </div>
       )}
 
-      {job && running && (
+      {job && jobTab === tab && <div ref={status} className="stack">
+      {running && (
         <div className="stack" style={{ gap: 6 }}>
           <div className="row small">
             <span className="grow muted">{job.message}</span>
@@ -337,9 +346,9 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
           <div className="progress"><div style={{ width: `${Math.max(4, job.progress * 100)}%` }} /></div>
         </div>
       )}
-      {job?.status === 'error' && <div className="banner err small">{job.error}</div>}
+      {job.status === 'error' && <div className="banner err small" style={{ marginBottom: 0 }}>{job.error}</div>}
 
-      {result && job?.downloadUrl && (
+      {result && job.downloadUrl && (
         <div className="export-result">
           <div className="row" style={{ gap: 8 }}>
             <CheckCircle2 size={18} color="var(--ok)" />
@@ -354,7 +363,7 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
               </button>
             )}
             {canShare(result.name) && (
-              <button className="btn" disabled={Boolean(transfer)} onClick={() => void share()}>
+              <button className={`btn${standalone ? ' primary' : ''}`} disabled={Boolean(transfer)} onClick={() => void share()}>
                 <Share2 size={16} />Compartir{isNativeApp ? ' (WhatsApp…)' : ''}
               </button>
             )}
@@ -376,6 +385,7 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
           )}
         </div>
       )}
+      </div>}
     </Modal>
   )
 }

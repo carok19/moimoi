@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Section } from '../api/types'
 import { drawWave } from '../audio/peaks'
 import { lowerBound, type LoopRange, type StemPlayer } from '../audio/StemPlayer'
@@ -26,6 +26,42 @@ function snap(t: number, beats: number[]): number {
   const candidates = [beats[i - 1], beats[i]].filter((b) => b !== undefined) as number[]
   const best = candidates.reduce((a, b) => (Math.abs(b - t) < Math.abs(a - t) ? b : a), candidates[0])
   return Math.abs(best - t) < 0.15 ? best : t
+}
+
+const LABEL_FONT = '700 12px Inter, "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif'
+let measure: CanvasRenderingContext2D | null | undefined
+
+function textWidth(text: string): number {
+  if (measure === undefined) measure = document.createElement('canvas').getContext('2d')
+  if (!measure) return text.length * 7.5
+  measure.font = LABEL_FONT
+  return measure.measureText(text).width
+}
+
+/** Formas cortas de los nombres que pone el análisis, de más larga a más corta. */
+const SHORT: Record<string, string[]> = {
+  Intro: ['In'],
+  Verso: ['V'],
+  'Pre-coro': ['Pre', 'PC'],
+  Coro: ['C'],
+  Puente: ['Pte', 'P'],
+  Instrumental: ['Inst', 'I'],
+  Final: ['Fin', 'F'],
+}
+
+/** El nombre de la parte que entra en su recuadro ("Verso 1" -> "V1"); los nombres propios se cortan con "…". */
+function fitLabel(label: string, px: number): string {
+  const room = px - 15 // relleno (6 + 6), borde (1 + 1) y un píxel de margen
+  if (textWidth(label) <= room) return label
+  const match = label.match(/^(.*?)\s*(\d+)$/)
+  const base = match ? match[1] : label
+  const number = match ? match[2] : ''
+  const forms = SHORT[base]
+  if (!forms) return room >= 18 ? label : ''
+  for (const form of forms) {
+    if (textWidth(form + number) <= room) return form + number
+  }
+  return ''
 }
 
 export function Timeline({ player, peaks, duration, sections, beats, loop, loopOn, onSeek, onLoop }: Props) {
@@ -67,6 +103,10 @@ export function Timeline({ player, peaks, duration, sections, beats, loop, loopO
   }
 
   const shown = draft ?? (loop && loopOn ? loop : null)
+  const labels = useMemo(
+    () => sections.map((s) => (width && duration ? fitLabel(s.label, ((s.end - s.start) / duration) * width - 3) : s.label)),
+    [sections, width, duration],
+  )
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return
@@ -120,7 +160,7 @@ export function Timeline({ player, peaks, duration, sections, beats, loop, loopO
               onClick={() => onSeek(s.start)}
               onDoubleClick={() => onLoop({ start: s.start, end: s.end }, true)}
             >
-              {s.label}
+              <span className="ellipsis">{labels[i]}</span>
             </div>
           )
         })}

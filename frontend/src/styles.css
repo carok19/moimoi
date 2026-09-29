@@ -124,6 +124,8 @@ textarea.input { height: auto; padding: 10px 14px; resize: vertical; }
   color: var(--text-2); font-weight: 600; font-size: 13.5px;
 }
 .segmented button.active { background: var(--panel-3); color: var(--text); box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset; }
+.segmented.tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+.segmented.tabs button { padding: 0 10px; }
 
 .progress { height: 6px; border-radius: 99px; background: var(--panel-3); overflow: hidden; }
 .progress > div { height: 100%; background: var(--grad); border-radius: 99px; transition: width 0.4s ease; }
@@ -178,24 +180,28 @@ input[type='range']::-moz-range-thumb { width: 15px; height: 15px; border-radius
 .stem-dots { display: flex; gap: 5px; flex-wrap: wrap; }
 .stem-dots span { font-size: 11px; padding: 2px 7px; border-radius: 99px; background: var(--panel-3); color: var(--text-2); display: inline-flex; gap: 5px; align-items: center; }
 .stem-dots i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.preset-stems { display: none; margin-top: 10px; }
 .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-top: 14px; }
 .result { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: var(--bg-2); border: 1px solid var(--line); }
 .result img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--panel-3); }
 .result .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
 
 .songs { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
-.song-card { position: relative; display: flex; flex-direction: column; overflow: hidden; transition: border-color 0.15s, transform 0.15s; }
+.song-card { position: relative; display: flex; flex-direction: column; transition: border-color 0.15s, transform 0.15s; }
+.song-card:has(.menu) { z-index: 5; }
 .song-card.clickable { cursor: pointer; }
 .song-card.clickable:hover { border-color: var(--line-2); transform: translateY(-2px); }
 .cover {
   position: relative; aspect-ratio: 16 / 8; background: var(--grad); display: flex; align-items: center; justify-content: center;
   overflow: hidden; font-size: 34px; font-weight: 800; color: rgba(255, 255, 255, 0.9);
+  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
 }
 .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cover .shade { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.65)); }
 .cover .duration { position: absolute; right: 10px; bottom: 8px; font-size: 12px; font-weight: 600; background: rgba(0,0,0,0.55); padding: 2px 7px; border-radius: 6px; }
 .song-card .info { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 9px; }
-.song-card .menu-btn { position: absolute; top: 8px; right: 8px; z-index: 2; background: rgba(0, 0, 0, 0.55); border-color: transparent; }
+.song-card .card-menu { position: absolute; top: 8px; right: 8px; z-index: 2; }
+.song-card .menu-btn { background: rgba(0, 0, 0, 0.55); border-color: transparent; }
 .empty { padding: 50px 20px; text-align: center; color: var(--text-2); border: 1px dashed var(--line-2); border-radius: var(--radius); }
 .banner { display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px; border-radius: 12px; margin-bottom: 18px; border: 1px solid; }
 .banner.err { background: rgba(255, 107, 107, 0.08); border-color: rgba(255, 107, 107, 0.35); }
@@ -203,6 +209,7 @@ input[type='range']::-moz-range-thumb { width: 15px; height: 15px; border-radius
 .banner code { background: var(--bg-2); padding: 1px 6px; border-radius: 5px; }
 
 /* ---- menú ---- */
+.menu-anchor { position: relative; }
 .menu {
   position: absolute; z-index: 50; min-width: 220px; padding: 6px; border-radius: 12px; background: var(--panel-2);
   border: 1px solid var(--line-2); box-shadow: var(--shadow);
@@ -217,10 +224,13 @@ input[type='range']::-moz-range-thumb { width: 15px; height: 15px; border-radius
 
 /* ---- modal ---- */
 .modal-back { position: fixed; inset: 0; z-index: 80; background: rgba(5, 6, 9, 0.66); display: flex; align-items: center; justify-content: center; padding: 16px; backdrop-filter: blur(3px); }
-.modal { width: 100%; max-width: 620px; max-height: calc(100vh - 32px); overflow: auto; background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow); }
-.modal header { display: flex; align-items: center; gap: 12px; padding: 18px 20px 12px; }
-.modal .content { padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 16px; }
-.modal footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); }
+.modal {
+  width: 100%; max-width: 620px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: var(--shadow);
+}
+.modal header { display: flex; align-items: center; gap: 12px; padding: 18px 20px 12px; flex: none; }
+.modal .content { padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; min-height: 0; flex: 1 1 auto; overscroll-behavior: contain; }
+.modal footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); flex: none; }
 .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
 .check {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
@@ -282,7 +292,7 @@ input[type='range']::-moz-range-thumb { width: 15px; height: 15px; border-radius
 .timeline canvas { display: block; width: 100%; cursor: pointer; }
 .timeline .sections { position: relative; height: 26px; margin-bottom: 6px; }
 .timeline .section {
-  position: absolute; top: 0; height: 26px; border-radius: 7px; padding: 0 8px; display: flex; align-items: center;
+  position: absolute; top: 0; height: 26px; border-radius: 7px; padding: 0 6px; display: flex; align-items: center;
   font-size: 12px; font-weight: 700; overflow: hidden; white-space: nowrap; cursor: pointer; color: rgba(255,255,255,0.92);
   border: 1px solid rgba(255,255,255,0.08); transition: filter 0.1s;
 }
@@ -374,7 +384,7 @@ input[type='range']::-moz-range-thumb { width: 15px; height: 15px; border-radius
 .band-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .kv { display: grid; grid-template-columns: 170px 1fr; gap: 8px 16px; font-size: 14px; }
 .kv dt { color: var(--text-3); }
-.kv dd { margin: 0; word-break: break-all; }
+.kv dd { margin: 0; overflow-wrap: anywhere; min-width: 0; }
 code.block { display: block; background: var(--bg-2); border: 1px solid var(--line); padding: 10px 12px; border-radius: 10px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .spin { animation: spin 1s linear infinite; }
@@ -386,7 +396,7 @@ button.link { background: none; border: 0; padding: 0; color: #b7a3ff; cursor: p
 button.chip { cursor: pointer; border: 1px solid var(--line); font-size: 13px; gap: 6px; height: 30px; padding: 0 12px; }
 button.chip:hover, .chip .chip-main:hover { color: var(--text); }
 .chip.on { background: var(--accent-soft); border-color: rgba(139, 92, 246, 0.6); color: #e2d8ff; }
-span.chip { padding: 0; height: 30px; border: 1px solid var(--line); overflow: hidden; }
+.chip.split { padding: 0; height: 30px; border: 1px solid var(--line); overflow: hidden; }
 .chip .chip-main, .chip .chip-play { background: none; border: 0; color: inherit; cursor: pointer; font-size: 13px; }
 .chip .chip-main { height: 100%; padding: 0 4px 0 12px; }
 .chip .chip-play { height: 100%; padding: 0 10px 0 6px; display: inline-flex; align-items: center; color: var(--text-2); }
@@ -429,7 +439,6 @@ details summary { cursor: pointer; }
   .check-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .engine-pill { display: none; }
   .page { padding: 18px 16px 50px; }
-  .presets { grid-template-columns: 1fr; }
   .options { grid-template-columns: 1fr; }
   .add-row { flex-direction: column; }
   .stem-row { grid-template-columns: 1fr auto; grid-template-areas: 'name ms' 'wave wave' 'ctrl ctrl'; row-gap: 8px; }
@@ -437,12 +446,56 @@ details summary { cursor: pointer; }
   .stem-row .ms { grid-area: ms; }
   .stem-row .stem-wave { grid-area: wave; }
   .stem-row .stem-controls { grid-area: ctrl; }
-  .chord-now { grid-template-columns: 1fr; }
-  .chord-big .current { font-size: 52px; }
   .player-head { flex-wrap: wrap; }
   .transport { padding: 8px 12px calc(10px + env(safe-area-inset-bottom)); }
   .stepper { min-width: 130px; }
   .tool { min-width: 54px; }
   .transport .buttons { gap: 4px; }
   :root { --transport-h: 92px; }
+
+  /* separación: tres botones en una fila y debajo las pistas de la opción elegida */
+  .presets { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .preset { align-items: center; text-align: center; padding: 11px 6px; }
+  .preset .stem-dots { display: none; }
+  .preset-stems { display: flex; }
+
+  /* biblioteca: tarjetas horizontales para ver más canciones sin bajar tanto */
+  .songs { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .song-card { flex-direction: row; align-items: stretch; }
+  .song-card.clickable:hover { transform: none; }
+  .cover { width: 92px; min-height: 92px; aspect-ratio: auto; flex: none; font-size: 24px; border-radius: calc(var(--radius) - 1px) 0 0 calc(var(--radius) - 1px); }
+  .cover .duration { right: 6px; bottom: 6px; font-size: 11px; padding: 1px 5px; }
+  .song-card .info { flex: 1; min-width: 0; padding: 10px 44px 10px 12px; gap: 7px; justify-content: center; }
+  .song-card .card-menu { top: 6px; right: 6px; }
+  .song-card .menu-btn { background: transparent; }
+  .song-card .chip { height: 22px; padding: 0 8px; font-size: 11.5px; }
+
+  /* acorde: nombre y diagrama lado a lado */
+  .chord-now { grid-template-columns: minmax(0, 1fr) minmax(0, 46%); padding: 14px 16px; gap: 12px; }
+  .chord-big { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .chord-big .current { font-size: 58px; }
+  .chord-big .current.mid { font-size: 44px; }
+  .chord-big .current.long { font-size: 32px; }
+  .chord-big .next { font-size: 20px; display: flex; align-items: baseline; gap: 6px; }
+  .chord-big .next small { display: inline; }
+  .diagram-box svg { max-width: 100%; height: auto; }
+  .diagram-box .segmented button { height: 26px; padding: 0 10px; font-size: 12.5px; }
+}
+@media (max-width: 520px) {
+  .player-head { gap: 10px; }
+  .player-head .thumb { display: none; }
+  .title-edit { font-size: 21px; }
+  .modal-back { padding: 10px; }
+  .modal { max-height: calc(100vh - 20px); max-height: calc(100dvh - 20px); }
+  .modal header { padding: 14px 16px 10px; }
+  .modal .content { padding: 4px 16px 16px; }
+  .modal footer { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+  .modal footer .btn.primary { flex: 1 1 auto; }
+  .wide-only { display: none; }
+  /* opciones en pastilla: si no entran en el ancho, el texto pasa a dos líneas en vez de quedar tapado */
+  .segmented { display: inline-grid; grid-auto-flow: column; grid-auto-columns: minmax(min-content, max-content); overflow: visible; }
+  .segmented button { white-space: normal; height: auto; min-height: 30px; padding: 4px 11px; line-height: 1.2; }
+  .segmented.tabs button { white-space: normal; height: auto; min-height: 34px; padding: 5px 6px; line-height: 1.2; font-size: 13px; }
+  .segmented.tabs { border-radius: 14px; }
+  .segmented.tabs button { border-radius: 11px; }
 }

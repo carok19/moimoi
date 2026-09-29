@@ -155,7 +155,7 @@ export interface Health {
     lyrics: boolean
     stretchExport: boolean
     ffmpeg: boolean
-    /** Tempo, acordes y partes (en la computadora siempre; en el celular, próximamente). */
+    /** Tempo, acordes y partes (false solo en versiones viejas de la app del celular). */
     analysis?: boolean
     /** Voz guía y sonidos de click. */
     guide?: boolean

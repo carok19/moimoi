@@ -21,6 +21,11 @@ const NUMBERING: { id: GuideNumbering; label: string; hint: string }[] = [
 
 const MAX_RECORD_MS = 6000
 
+/** "1 voz", "3 voces"… */
+function count(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`
+}
+
 let previewAudio: HTMLAudioElement | null = null
 
 function play(url: string): void {
@@ -105,9 +110,6 @@ export function GuideVoices() {
     setSummary(result.summary)
     setKit(result)
     setShown(result.set)
-    const { added, clicks } = result.summary
-    toast.show(added || clicks ? `Listo: ${added} voces${clicks ? ` y ${clicks} sonidos de click` : ''}` : 'No se encontraron voces en esos archivos',
-      added || clicks ? 'ok' : 'err')
   }
 
   /** En el celular: el selector de archivos de Android (el paquete no pasa por la página). */
@@ -223,24 +225,31 @@ export function GuideVoices() {
           {upload !== null ? <Loader2 size={16} className="spin" /> : <Upload size={16} />}
           {upload !== null ? (upload < 1 ? `Subiendo… ${Math.round(upload * 100)}%` : 'Reconociendo las voces…') : 'Cargar paquete (.zip o audios)'}
         </button>
-        {kit.count > 0 && <span className="small muted">{kit.count} voces listas{kit.sets.length > 1 ? ` · ${kit.sets.length} idiomas` : ''}</span>}
+        {kit.count > 0 && <span className="small muted">{count(kit.count, 'voz lista', 'voces listas')}{kit.sets.length > 1 ? ` · ${kit.sets.length} idiomas` : ''}</span>}
       </div>
 
       {summary && (
-        <div className={`banner small ${summary.errors.length ? 'err' : 'info'}`} style={{ marginBottom: 0 }}>
+        <div className={`banner small ${summary.errors.length || !(summary.added || summary.clicks) ? 'err' : 'info'}`} style={{ marginBottom: 0 }}
+          role="status">
           <div className="stack" style={{ gap: 4 }}>
-            <div>
-              Se cargaron <b>{summary.added}</b> voces ({summary.recognized} reconocidas)
-              {summary.sets.length > 0 && <> en {summary.sets.length === 1 ? '1 idioma' : `${summary.sets.length} idiomas`}</>}
-              {summary.clicks > 0 && <> y <b>{summary.clicks}</b> sonidos de click</>}.
-            </div>
+            {summary.added || summary.clicks ? <div>
+              {summary.added === 1 ? 'Se cargó ' : 'Se cargaron '}<b>{count(summary.added, 'voz', 'voces')}</b>
+              {summary.added > 0 && <> ({count(summary.recognized, 'reconocida', 'reconocidas')})</>}
+              {summary.sets.length > 0 && <> en {count(summary.sets.length, 'idioma', 'idiomas')}</>}
+              {summary.clicks > 0 && <> y <b>{count(summary.clicks, 'sonido', 'sonidos')}</b> de click</>}.
+            </div> : <div>
+              No se encontraron voces en esos archivos. MoiMoi reconoce las voces por el nombre del archivo (por ejemplo
+              "Coro.wav", "Verso 1.mp3" o "1 2 3 4.wav").
+            </div>}
             {summary.errors.length > 0 && (
               <details>
-                <summary>{summary.errors.length} archivos venían dañados y se saltearon (vuelve a descargar el paquete)</summary>
+                <summary>{summary.errors.length === 1 ? '1 archivo venía dañado y se salteó' : `${summary.errors.length} archivos venían dañados y se saltearon`} (vuelve a descargar el paquete)</summary>
                 <div className="tiny muted">{summary.errors.map((e) => e.original).join(' · ')}</div>
               </details>
             )}
-            {summary.skipped.length > 0 && <div className="tiny muted">{summary.skipped.length} archivos sin sonido o que no son audio se ignoraron.</div>}
+            {summary.skipped.length > 0 && <div className="tiny muted">
+              {summary.skipped.length === 1 ? '1 archivo sin sonido o que no es audio se ignoró.' : `${summary.skipped.length} archivos sin sonido o que no son audio se ignoraron.`}
+            </div>}
           </div>
         </div>
       )}
@@ -268,7 +277,11 @@ export function GuideVoices() {
             </div>
           )}
           {shownSet?.active && kit.missing.length > 0 && (
-            <div className="row small warn-text"><AlertTriangle size={15} />Faltan: {kit.missing.join(', ')}. Puedes grabarlas o volver a cargar el paquete.</div>
+            <div className="row small warn-text"><AlertTriangle size={15} style={{ flex: 'none', marginTop: 2 }} />
+              {kit.missing.length === 1 ? `Falta: ${kit.missing[0]}.` : `Faltan: ${kit.missing.join(', ')}.`}{' '}
+              {recordingSupported()
+                ? `Puedes ${kit.missing.length === 1 ? 'grabarla' : 'grabarlas'} con el micrófono o volver a cargar el paquete.`
+                : 'Puedes volver a cargar el paquete con esas voces.'}</div>
           )}
         </>
       )}
@@ -310,7 +323,10 @@ export function GuideVoices() {
         })}
       </div>
       {unassigned.length > 0 && (
-        <div className="tiny muted">{unassigned.length} archivos de este idioma sin asignar: elígelos en la lista de arriba.</div>
+        <div className="tiny muted">
+          {unassigned.length === 1 ? '1 archivo de este idioma sin asignar: elígelo' : `${unassigned.length} archivos de este idioma sin asignar: elígelos`} en
+          la lista de arriba.
+        </div>
       )}
 
       <div className="row wrap">
@@ -335,7 +351,7 @@ export function GuideVoices() {
           {[null, ...kit.clicks].map((style) => {
             const id = style?.id ?? 'moimoi'
             return (
-              <span key={id} className={`chip${settings.exportClickSound === id ? ' on' : ''}`}>
+              <span key={id} className={`chip split${settings.exportClickSound === id ? ' on' : ''}`}>
                 <button className="chip-main" onClick={() => void save({ exportClickSound: id })}>{style?.name ?? 'MoiMoi'}</button>
                 <button className="chip-play" onClick={() => void previewClick(style)} aria-label={`Escuchar ${style?.name ?? 'MoiMoi'}`}><Play size={12} /></button>
               </span>

@@ -326,7 +326,7 @@ public class PruebaLocal {
         job = waitJob(b, job.getString("id"), 60);
         check(job.getString("status").equals("done"), "exportación de pistas: " + job);
         LocalApi.Download zip = b.resolveDownload(job.getString("downloadUrl"), null);
-        check(zip.name.equals("Artista Prueba - Nuevo.zip") && zip.mime.equals("application/zip"), "nombre del zip " + zip.name);
+        check(zip.name.equals("Artista Prueba - Nuevo (pistas).zip") && zip.mime.equals("application/zip"), "nombre del zip " + zip.name);
         Map<String, byte[]> entries = unzip(zip.file);
         check(entries.keySet().equals(new java.util.HashSet<>(java.util.Arrays.asList("Voz.wav", "Bajo.wav", "moimoi.json"))),
                 "contenido del zip " + entries.keySet());

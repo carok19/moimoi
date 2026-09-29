@@ -38,6 +38,12 @@ export function PresetPicker({ preset, quality, onPreset, onQuality }: Props) {
             </button>
           ))}
         </div>
+        {/* En pantallas chicas los botones muestran solo el nombre: acá van las pistas de la opción elegida. */}
+        <span className="stem-dots preset-stems">
+          {(list.find((p) => p.id === preset)?.stems ?? []).map((s) => (
+            <span key={s}><i style={{ background: STEM_INFO[s].color }} />{STEM_INFO[s].name}</span>
+          ))}
+        </span>
       </div>
       {qualities > 1 && <div>
         <div className="small muted" style={{ marginBottom: 8 }}>Calidad</div>

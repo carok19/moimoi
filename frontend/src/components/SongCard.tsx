@@ -46,6 +46,7 @@ export function SongCard({ song, onChange }: { song: Song; onChange: () => void 
       aria-label={song.title}
     >
       <Menu
+        className="card-menu"
         button={(open) => (
           <button className="btn icon small menu-btn" onClick={open} aria-label="Opciones"><MoreHorizontal size={16} /></button>
         )}
@@ -94,7 +95,7 @@ export function SongCard({ song, onChange }: { song: Song; onChange: () => void 
               <div style={{ width: `${Math.max(3, song.progress * 100)}%` }} />
             </div>
             <div className="row">
-              <span className="tiny faint grow">{song.presetName}{song.quality === 'alta' ? ' · calidad alta' : ''}</span>
+              <span className="tiny faint grow" title={song.presetName}>{song.preset[0]} pistas{song.quality === 'alta' ? ' · calidad alta' : ''}</span>
               <button className="btn ghost small" onClick={(e) => { e.stopPropagation(); void act(() => api.cancelSong(song.id)) }}>
                 <X size={14} />Cancelar
               </button>

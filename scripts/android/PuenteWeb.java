@@ -21,6 +21,9 @@ import org.json.JSONObject;
  *
  *   java PuenteWeb carpeta_modelo frontend/dist puerto archivo_de_audio...
  *
+ * Con MOIMOI_RAIZ se usa esa carpeta de datos (si no, una temporal nueva) y con MOIMOI_GUIA
+ * (rutas separadas por ":") lo que "elige" el selector de voces guía.
+ *
  * Sirve la interfaz compilada y hace de "puente de Android": los pedidos que la app haría a sus
  * plugins (MoiMoiLocal, SharedLink, App) llegan acá por POST /bridge y los responde el mismo
  * com.moimoi.local que usa la app. "Elegir canciones" agrega los archivos de la línea de comandos.
@@ -41,7 +44,8 @@ public class PuenteWeb {
         for (int i = 3; i < args.length; i++) {
             toPick.add(new File(args[i]));
         }
-        File root = Files.createTempDirectory("moimoi-puente").toFile();
+        String fixed = System.getenv("MOIMOI_RAIZ");
+        File root = fixed != null && !fixed.isEmpty() ? new File(fixed) : Files.createTempDirectory("moimoi-puente").toFile();
         backend = LocalBackend.create(new PruebaLocal.DesktopPlatform(root, model, 4));
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
         server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
@@ -168,6 +172,27 @@ public class PuenteWeb {
                 case "requestNotifications":
                     data.put("granted", true);
                     break;
+                case "pickGuide": {
+                    String list = System.getenv("MOIMOI_GUIA");
+                    if (list == null || list.isEmpty()) {
+                        data.put("cancelled", true);
+                        break;
+                    }
+                    List<com.moimoi.local.Guide.Upload> uploads = new ArrayList<>();
+                    for (String path : list.split(":")) {
+                        File f = new File(path);
+                        File copy = File.createTempFile("voz", "");
+                        Files.copy(f.toPath(), copy.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        uploads.add(new com.moimoi.local.Guide.Upload(f.getName(), copy));
+                    }
+                    try {
+                        data.put("kit", backend.importGuide(uploads, null,
+                                options.isNull("set") ? null : options.optString("set", null)).toString());
+                    } catch (ApiException e) {
+                        error = e.getMessage();
+                    }
+                    break;
+                }
                 default:
                     error = "Método desconocido: " + method;
             }

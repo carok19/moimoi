@@ -50,6 +50,9 @@ export function ChordPanel({ player, chords, grid, transposition }: Props) {
       // sin almacenamiento local
     }
   }
+  const name = current ? chordLabel(current, transposition) : '—'
+  // Nombres largos ("F#m7/C#") en letra más chica para que entren al lado del diagrama.
+  const size = name.length > 5 ? ' long' : name.length > 3 ? ' mid' : ''
   const root = current && current.quality !== 'N' ? mod12(current.root + transposition.semitones) : -1
   const bass = current && current.bass !== null ? mod12(current.bass + transposition.semitones) : null
 
@@ -58,7 +61,7 @@ export function ChordPanel({ player, chords, grid, transposition }: Props) {
       <div>
         <div className="small faint" style={{ fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Acorde</div>
         <div className="chord-big">
-          <div className="current" aria-live="polite">{current ? chordLabel(current, transposition) : '—'}</div>
+          <div className={`current${size}`} aria-live="polite">{name}</div>
           {next && (
             <div className="next"><small>Sigue</small>{chordLabel(next, transposition)}</div>
           )}

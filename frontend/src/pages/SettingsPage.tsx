@@ -234,10 +234,11 @@ export function SettingsPage() {
               {health.standalone ? (
                 <div className="stack" style={{ gap: 8 }}>
                   <Feature ok label="Separación de pistas en 2, 4 o 6 (Demucs, en el celular)" />
-                  <Feature ok label="Exportar pistas, mezcla y paquete para Multitrack (WAV)" />
-                  <Feature ok={false} label="Links de YouTube" hint="Próximamente en la app del celular" />
-                  <Feature ok={false} label="Tempo, acordes, partes, click y voz guía" hint="Próximamente en la app del celular" />
-                  <Feature ok={false} label="Exportar con otra velocidad o tono" hint="Próximamente en la app del celular" />
+                  <Feature ok={health.features.analysis !== false} label="Tempo, compás, tonalidad, acordes y partes" hint="actualiza MoiMoi" />
+                  <Feature ok label="Exportar pistas, mezcla y paquete para Multitrack con click (WAV)" />
+                  <Feature ok={health.features.guide !== false} label="Voz guía que anuncia cada parte" hint="actualiza MoiMoi" />
+                  <Feature ok={health.features.stretchExport} label="Exportar con otra velocidad o tono" hint="actualiza MoiMoi" />
+                  <Feature ok={false} label="Links de YouTube, MP3 y letra automática" hint="Por ahora solo en MoiMoi para computadora" />
                 </div>
               ) : <div className="stack" style={{ gap: 8 }}>
                 <Feature ok={health.engine.available} label="Separación de pistas (Demucs)" hint="Ejecuta el instalador: iniciar.bat / ./iniciar.sh" />

@@ -483,7 +483,8 @@ public final class Exporter {
         int pre = (int) Math.round(timeline.preRoll * SR);
         boolean plain = !changed && pre == 0;
 
-        String zipName = baseName + suffix + ".zip";
+        // El paquete se llama como la canción (Multitrack Alabanza usa ese nombre); las pistas sueltas, no.
+        String zipName = baseName + suffix + (multitrack ? "" : " (pistas)") + ".zip";
         // Con otra velocidad o tono: primero se estiran todas las pistas, varias a la vez.
         Map<String, File> stretchedFiles = new LinkedHashMap<>();
         Map<String, Float> stretchedPeaks = new LinkedHashMap<>();

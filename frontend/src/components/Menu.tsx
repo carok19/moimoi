@@ -4,10 +4,11 @@ interface Props {
   button: (open: () => void) => ReactNode
   children: (close: () => void) => ReactNode
   align?: 'left' | 'right'
+  className?: string
 }
 
 /** Menú desplegable simple (se cierra al hacer clic afuera o con Escape). */
-export function Menu({ button, children, align = 'right' }: Props) {
+export function Menu({ button, children, align = 'right', className }: Props) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -24,7 +25,7 @@ export function Menu({ button, children, align = 'right' }: Props) {
     }
   }, [open])
   return (
-    <div ref={ref} style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
+    <div ref={ref} className={`menu-anchor${className ? ` ${className}` : ''}`} onClick={(e) => e.stopPropagation()}>
       {button(() => setOpen((v) => !v))}
       {open && (
         <div className="menu" style={{ top: 'calc(100% + 6px)', [align]: 0 }}>

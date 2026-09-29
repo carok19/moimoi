@@ -402,7 +402,8 @@ def run_export(song: dict, paths: SongPaths, params: dict, out_dir: Path,
     pre = int(round(timeline.pre_roll * SAMPLE_RATE))
     plain = not suffix and pre == 0  # las pistas se copian tal cual (conversión en caché)
 
-    zip_name = f"{base_name}{suffix}.zip"
+    # El paquete se llama como la canción (Multitrack Alabanza usa ese nombre); las pistas sueltas, no.
+    zip_name = f"{base_name}{suffix}{'' if multitrack else ' (pistas)'}.zip"
     target = out_dir / "paquete.zip"
     steps = len(wanted) + want_click + want_guide + 1
     step = 0

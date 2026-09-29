@@ -253,6 +253,7 @@ public final class Processor {
         private final String title;
         private final Stage stage;
         private long lastSong;
+        private String lastMessage;
 
         Reporter(Jobs.Reporter job, String songId, String title, Stage stage) {
             this.job = job;
@@ -265,8 +266,10 @@ public final class Processor {
             double total = stage.at(name, fraction);
             job.report(total, message); // lanza Cancelled si se pidió cancelar
             long now = System.currentTimeMillis();
-            if (now - lastSong >= 250 || fraction >= 1.0) {
+            // Un paso nuevo se muestra enseguida (si no, "Audio listo" quedaba hasta el primer trozo separado).
+            if (now - lastSong >= 250 || fraction >= 1.0 || !message.equals(lastMessage)) {
                 lastSong = now;
+                lastMessage = message;
                 store.updateSong(songId, "progress", Json.round(total, 4), "stage", message, "status", status);
                 platform.progress(title, total, message);
             }

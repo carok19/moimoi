@@ -35,7 +35,7 @@ export function AddSongPanel({ onAdded, sharedLink }: { onAdded: () => void; sha
 
   useEffect(() => {
     if (sharedLink && showLinks) setTab('link')
-    else if (sharedLink) toast.show('Los links de YouTube en el celular llegan en la próxima versión. Por ahora, elige el archivo de audio.')
+    else if (sharedLink) toast.show('Los links de YouTube todavía no funcionan en la app del celular (sí en MoiMoi para computadora). Por ahora, elige el archivo de audio.', 'info', 8000)
   }, [sharedLink, showLinks, toast])
 
   useEffect(() => {
