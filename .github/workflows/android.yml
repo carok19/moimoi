@@ -207,7 +207,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           working-directory: frontend/android
-          script: ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace && (adb logcat -d | grep "MoiMoi:" || true)
+          script: ./gradlew :app:connectedDebugAndroidTest -Pemulador --no-daemon --stacktrace && (adb logcat -d | grep "MoiMoi:" || true)
 
       - name: Resultados de la prueba
         if: always()

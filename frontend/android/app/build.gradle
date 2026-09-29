@@ -11,9 +11,10 @@ android {
         versionCode((System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger())
         versionName "1.0.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        // Celulares de 64 bits (arm64) y el emulador (x86_64): la separación necesita 64 bits y así el APK pesa menos.
+        // Celulares de 64 bits (arm64): la separación necesita 64 bits y así el APK pesa menos.
+        // Con -Pemulador también x86_64 (el emulador de las pruebas en GitHub Actions).
         ndk {
-            abiFilters 'arm64-v8a', 'x86_64'
+            abiFilters.addAll(project.hasProperty('emulador') ? ['arm64-v8a', 'x86_64'] : ['arm64-v8a'])
         }
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -35,6 +36,12 @@ android {
         // El modelo de separación se lee directo del APK (mapeado en memoria): va sin comprimir.
         noCompress 'onnx'
     }
+    packaging {
+        // Las bibliotecas nativas (ONNX Runtime) van comprimidas: el APK se descarga más rápido.
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
@@ -44,6 +51,12 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+}
+
+// kotlin-stdlib 1.8 o más nuevo ya trae estas clases; las versiones viejas separadas chocan con él.
+configurations.configureEach {
+    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
 }
 
 repositories {
