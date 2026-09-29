@@ -135,3 +135,84 @@ jobs:
           fi
           gh release upload android MoiMoi.apk --clobber
           gh release edit android --notes "$notes"
+
+  # Prueba la separación en un Android de verdad (emulador): decodificar con MediaCodec, cargar el
+  # modelo desde el APK, separar con ONNX Runtime, guardar las pistas y exportar.
+  emulador:
+    name: Probar en un emulador de Android
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Modelo de separación (del paso anterior)
+        uses: actions/cache/restore@v4
+        with:
+          path: modelo
+          key: modelo-htdemucs_6s-${{ hashFiles('scripts/android/modelo_demucs.py') }}-torch2.14-demucs4.1.0
+          fail-on-cache-miss: true
+
+      - name: Interfaz y modelo en la app
+        run: |
+          npm ci
+          npm run build
+          npx cap sync android
+          mkdir -p android/app/src/main/assets/models
+          cp ../modelo/htdemucs_6s.onnx ../modelo/htdemucs_6s.json android/app/src/main/assets/models/
+
+      - name: Audios de prueba (M4A estéreo a 48 kHz y MP3 mono a 22 kHz)
+        run: |
+          command -v ffmpeg >/dev/null || (sudo apt-get update -q && sudo apt-get install -y -q ffmpeg)
+          mkdir -p android/app/src/androidTest/assets
+          ffmpeg -loglevel error -f lavfi -i "sine=frequency=220:duration=10" -f lavfi -i "sine=frequency=330:duration=10" \
+            -f lavfi -i "anoisesrc=duration=10:color=pink:amplitude=0.05" \
+            -filter_complex "[0][1]amerge=inputs=2[s];[s][2]amix=inputs=2:duration=first" \
+            -ar 48000 -ac 2 -c:a aac -b:a 128k android/app/src/androidTest/assets/prueba.m4a
+          ffmpeg -loglevel error -f lavfi -i "sine=frequency=440:duration=6" -ar 22050 -ac 1 -c:a libmp3lame -b:a 64k \
+            android/app/src/androidTest/assets/prueba.mp3
+          ls -la android/app/src/androidTest/assets
+
+      - name: Permitir KVM (acelera el emulador)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Separar en el emulador
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          cores: 4
+          ram-size: 4096M
+          disk-size: 6000M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          working-directory: frontend/android
+          script: ./gradlew connectedDebugAndroidTest --no-daemon --stacktrace && (adb logcat -d | grep "MoiMoi:" || true)
+
+      - name: Resultados de la prueba
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prueba-emulador
+          path: frontend/android/app/build/reports/androidTests/
+          if-no-files-found: ignore

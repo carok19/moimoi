@@ -2,3 +2,5 @@
 !/build/.npmkeep
 # Modelo de separación: lo genera scripts/android/modelo_demucs.py (en GitHub Actions)
 /src/main/assets/models/
+# Audios de prueba del emulador: los genera GitHub Actions con ffmpeg
+/src/androidTest/assets/
