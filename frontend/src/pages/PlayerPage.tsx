@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 import { ArrowLeft, ExternalLink, Loader2, MoreHorizontal, Package, RefreshCw, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
-import { apiUrl } from '../api/base'
+import { apiUrl, isStandalone } from '../api/base'
 import type { Analysis, MixerChannel, Peaks, Section, Song, StemId } from '../api/types'
 import { decodePeaks } from '../audio/peaks'
-import { StemPlayer, type LoopRange } from '../audio/StemPlayer'
+import { playbackQuality, StemPlayer, type LoopRange } from '../audio/StemPlayer'
 import { ChordPanel, ChordStrip } from '../components/ChordPanel'
 import { ExportDialog } from '../components/ExportDialog'
 import { Menu } from '../components/Menu'
@@ -82,7 +82,7 @@ export function PlayerPage({ songId }: { songId: string }) {
         setDownbeatShift(typeof st.downbeatShift === 'number' ? st.downbeatShift : 0)
         setSectionsEdited(Array.isArray(st.sections) && st.sections.length ? st.sections : null)
         setMasterVolume(typeof st.masterVolume === 'number' ? st.masterVolume : 1)
-        created = StemPlayer.create()
+        created = StemPlayer.create(playbackQuality(s.stems.length, s.duration ?? 0))
         await created.load(
           s.stems.map((x) => ({ id: x.id, name: x.name, url: apiUrl(x.url) })),
           st.mixer ?? {},
@@ -308,7 +308,9 @@ export function PlayerPage({ songId }: { songId: string }) {
           <Loader2 size={30} className="spin" color="#b7a3ff" />
           <div>{loading?.message ?? 'Cargando…'}</div>
           <div className="progress"><div style={{ width: `${Math.max(3, (loading?.fraction ?? 0) * 100)}%` }} /></div>
-          <div className="tiny faint">Las pistas se cargan en la memoria del navegador para poder cambiar velocidad y tono al instante.</div>
+          <div className="tiny faint">
+            Las pistas se cargan en la memoria {isStandalone() ? 'del celular' : 'del navegador'} para poder cambiar velocidad y tono al instante.
+          </div>
         </div>
       </main>
     )
@@ -404,6 +406,13 @@ export function PlayerPage({ songId }: { songId: string }) {
           )}
         </Menu>
       </div>
+
+      {player.reduced && (
+        <div className="tiny faint" style={{ margin: '-8px 0 14px' }}>
+          Canción larga: se escucha en calidad reducida{player.mono ? ' y en mono' : ''} para que alcance la memoria de este
+          dispositivo. Lo que exportes sale en calidad completa.
+        </div>
+      )}
 
       <div className="player-grid">
         <div className="player-main">

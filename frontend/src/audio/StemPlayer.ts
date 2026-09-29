@@ -52,6 +52,78 @@ export interface LoopRange {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
+/** Calidad con la que se cargan las pistas en el reproductor. */
+export interface PlaybackQuality {
+  sampleRate: number
+  mono: boolean
+}
+
+/**
+ * Las pistas quedan enteras en memoria (16 bits) para cambiar velocidad y tono al instante: una
+ * canción de 6 minutos en 6 pistas son unos 380 MB. En celulares con poca memoria, las canciones
+ * largas se cargan a 22 kHz (y si hace falta en mono) para que no se cierre la app. Las
+ * exportaciones no cambian: salen de las pistas originales.
+ */
+export function playbackQuality(stems: number, duration: number): PlaybackQuality {
+  const reported = (navigator as Navigator & { deviceMemory?: number }).deviceMemory
+  const phone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  const gigabytes = reported ?? (phone ? 3 : 16)
+  const budget = gigabytes * 1024 ** 3 * 0.1
+  const bytes = (rate: number, channels: number) => stems * duration * rate * channels * 2
+  if (bytes(44100, 2) <= budget) return { sampleRate: 44100, mono: false }
+  if (bytes(22050, 2) <= budget) return { sampleRate: 22050, mono: false }
+  return { sampleRate: 22050, mono: true }
+}
+
+/** Filtro de media banda de 47 coeficientes (ventana de Kaiser) para bajar a la mitad la frecuencia. */
+const HALF_BAND = (() => {
+  const reach = 23
+  const beta = 6
+  const bessel = (x: number) => {
+    let sum = 1
+    let term = 1
+    for (let k = 1; k < 30; k++) {
+      term *= (x / (2 * k)) ** 2
+      sum += term
+    }
+    return sum
+  }
+  const odd: number[] = []
+  for (let k = 1; k <= reach; k += 2) {
+    const t = k / (reach + 1)
+    odd.push((Math.sin((Math.PI * k) / 2) / (Math.PI * k)) * (bessel(beta * Math.sqrt(1 - t * t)) / bessel(beta)))
+  }
+  const gain = 0.5 + 2 * odd.reduce((a, b) => a + b, 0)
+  return { center: 0.5 / gain, odd: Float64Array.from(odd, (c) => c / gain) }
+})()
+
+/** De 44,1 kHz a 22,05 kHz (filtro de media banda y una de cada dos muestras). */
+function halve(input: Int16Array): Int16Array {
+  const n = input.length
+  const out = new Int16Array(n >> 1)
+  const { center, odd } = HALF_BAND
+  const taps = odd.length
+  const reach = 2 * taps - 1
+  const at = (i: number) => (i >= 0 && i < n ? input[i] : 0)
+  for (let i = 0; i < out.length; i++) {
+    const c = 2 * i
+    let acc = center * input[c]
+    if (c >= reach && c + reach < n) {
+      for (let j = 0, k = 1; j < taps; j++, k += 2) acc += odd[j] * (input[c - k] + input[c + k])
+    } else {
+      for (let j = 0, k = 1; j < taps; j++, k += 2) acc += odd[j] * (at(c - k) + at(c + k))
+    }
+    out[i] = acc >= 32767 ? 32767 : acc <= -32768 ? -32768 : acc
+  }
+  return out
+}
+
+function toMono(left: Int16Array, right: Int16Array): Int16Array {
+  const out = new Int16Array(left.length)
+  for (let i = 0; i < out.length; i++) out[i] = (left[i] + right[i]) >> 1
+  return out
+}
+
 export const DEFAULT_CHANNEL: MixerChannel = { volume: 1, pan: 0, mute: false, solo: false }
 
 function toInt16(data: Float32Array): Int16Array {
@@ -64,8 +136,9 @@ function toInt16(data: Float32Array): Int16Array {
 }
 
 /**
- * WAV PCM de 16 bits a la frecuencia del reproductor (las pistas que separa la app del celular): se
- * leen directo, sin decodeAudioData (que las pasaría a 32 bits y usaría el doble de memoria).
+ * WAV PCM de 16 bits a la frecuencia del reproductor, o al doble (las pistas que separa la app del
+ * celular): se leen directo, sin decodeAudioData (que las pasaría a 32 bits y usaría el doble de
+ * memoria).
  */
 function parseWav16(buffer: ArrayBuffer, sampleRate: number): Int16Array[] | null {
   if (buffer.byteLength < 44) return null
@@ -87,7 +160,7 @@ function parseWav16(buffer: ArrayBuffer, sampleRate: number): Int16Array[] | nul
       rate = view.getUint32(pos + 12, true)
       bits = view.getUint16(pos + 22, true)
     } else if (id === 'data') {
-      if (format !== 1 || bits !== 16 || rate !== sampleRate || channels < 1 || channels > 2) return null
+      if (format !== 1 || bits !== 16 || (rate !== sampleRate && rate !== 2 * sampleRate) || channels < 1 || channels > 2) return null
       const start = pos + 8
       const frames = Math.floor(Math.min(size, buffer.byteLength - start) / (2 * channels))
       const out = Array.from({ length: channels }, () => new Int16Array(frames))
@@ -100,7 +173,7 @@ function parseWav16(buffer: ArrayBuffer, sampleRate: number): Int16Array[] | nul
           r[i] = data[j + 1]
         }
       }
-      return out
+      return rate === sampleRate ? out : out.map(halve)
     }
     pos += 8 + size + (size & 1)
   }
@@ -201,18 +274,22 @@ export class StemPlayer {
   private listeners = new Set<() => void>()
   private destroyed = false
 
-  static create(): StemPlayer {
+  /** mono: las pistas estéreo se escuchan en mono (para ahorrar memoria, ver playbackQuality). */
+  readonly mono: boolean
+
+  static create(quality: PlaybackQuality = { sampleRate: 44100, mono: false }): StemPlayer {
     let ctx: AudioContext
     try {
-      ctx = new AudioContext({ sampleRate: 44100, latencyHint: 'interactive' })
+      ctx = new AudioContext({ sampleRate: quality.sampleRate, latencyHint: 'interactive' })
     } catch {
       ctx = new AudioContext({ latencyHint: 'interactive' })
     }
-    return new StemPlayer(ctx)
+    return new StemPlayer(ctx, quality.mono)
   }
 
-  private constructor(ctx: AudioContext) {
+  private constructor(ctx: AudioContext, mono: boolean) {
     this.ctx = ctx
+    this.mono = mono
     this.limiter = ctx.createDynamicsCompressor()
     this.limiter.threshold.value = -1.5
     this.limiter.knee.value = 0
@@ -276,6 +353,7 @@ export class StemPlayer {
         data = []
         for (let c = 0; c < Math.min(2, decoded.numberOfChannels); c++) data.push(toInt16(decoded.getChannelData(c)))
       }
+      if (this.mono && data.length === 2) data = [toMono(data[0], data[1])]
       const node = await SignalsmithStretch(this.ctx)
       await node.addBuffers(data, data.map((d) => d.buffer))
       const gain = this.ctx.createGain()
@@ -319,6 +397,11 @@ export class StemPlayer {
   /** Posición que se está escuchando ahora (segundos de la canción original). */
   get position(): number {
     return clamp(this.positionAt(this.ctx.currentTime - this.outputDelay()), 0, this.duration)
+  }
+
+  /** Si se carga con menos calidad que la original (canción larga en un celular con poca memoria). */
+  get reduced(): boolean {
+    return this.mono || this.ctx.sampleRate < 44100
   }
 
   get playing(): boolean {
