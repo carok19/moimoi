@@ -17,6 +17,8 @@ interface Props {
 
 export function PresetPicker({ preset, quality, onPreset, onQuality }: Props) {
   const { presets } = useApp()
+  // En el celular hay una sola calidad: no se muestra la opción.
+  const qualities = presets?.qualities.length ?? 2
   const list = presets?.presets ?? (Object.keys(PRESET_STEMS) as PresetId[]).map((id) => ({
     id, name: NAMES[id], description: '', stems: PRESET_STEMS[id],
   }))
@@ -37,7 +39,7 @@ export function PresetPicker({ preset, quality, onPreset, onQuality }: Props) {
           ))}
         </div>
       </div>
-      <div>
+      {qualities > 1 && <div>
         <div className="small muted" style={{ marginBottom: 8 }}>Calidad</div>
         <div className="segmented" role="radiogroup" aria-label="Calidad">
           <button type="button" className={quality === 'normal' ? 'active' : ''} onClick={() => onQuality('normal')}
@@ -45,7 +47,7 @@ export function PresetPicker({ preset, quality, onPreset, onQuality }: Props) {
           <button type="button" className={quality === 'alta' ? 'active' : ''} onClick={() => onQuality('alta')}
             title="Separación más limpia; tarda entre 2 y 4 veces más">Alta</button>
         </div>
-      </div>
+      </div>}
     </div>
   )
 }

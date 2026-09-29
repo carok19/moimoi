@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Cpu, Zap } from 'lucide-react'
-import { isNativeApp, serverBase } from './api/base'
+import { Cpu, Smartphone, Zap } from 'lucide-react'
+import { isNativeApp, isStandalone, serverBase } from './api/base'
+import { onImported } from './api/local'
 import { AppProvider, useApp } from './context'
 import { navigate, useHashRoute } from './hooks/useHashRoute'
 import { startNative } from './native'
-import { ToastProvider } from './components/Toasts'
+import { ToastProvider, useToast } from './components/Toasts'
 import { ConnectPage } from './pages/ConnectPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { PlayerPage } from './pages/PlayerPage'
@@ -20,6 +21,13 @@ function EnginePill() {
   if (!engine.available) {
     return <div className="engine-pill"><span className="dot err" />IA no instalada</div>
   }
+  if (engine.device === 'phone') {
+    return (
+      <div className="engine-pill" title={engine.detail}>
+        <span className="dot" /><Smartphone size={14} />En este celular
+      </div>
+    )
+  }
   const gpu = engine.device === 'cuda' || engine.device === 'mps'
   return (
     <div className="engine-pill" title={engine.detail}>
@@ -30,10 +38,29 @@ function EnginePill() {
   )
 }
 
+/** Audios compartidos con MoiMoi desde otras apps (modo celular): se avisa y se va a la biblioteca. */
+function SharedImports() {
+  const toast = useToast()
+  useEffect(() => {
+    if (!isStandalone()) return
+    return onImported(({ songs, errors }) => {
+      if (songs.length) {
+        toast.show(songs.length === 1 ? `"${songs[0].title}" agregada: separando pistas…`
+          : `${songs.length} canciones agregadas: separando pistas…`, 'ok')
+        navigate('#/')
+        window.dispatchEvent(new Event('moimoi:canciones'))
+      }
+      for (const e of errors) toast.show(`${e.name}: ${e.error}`, 'err', 7000)
+    })
+  }, [toast])
+  return null
+}
+
 function Shell() {
   const route = useHashRoute()
   return (
     <ToastProvider lifted={route.name === 'player'}>
+      <SharedImports />
       <div className="app">
         <header className="topbar">
           <a className="brand" href="#/">
@@ -61,17 +88,17 @@ export function App() {
 
   useEffect(() => startNative(), [])
 
-  // App de Android sin computadora elegida (o pidiendo cambiarla): pantalla para conectar.
-  if (isNativeApp && (!server || route.name === 'connect')) {
+  // App de Android: todo se hace en el celular. Opcionalmente se conecta a MoiMoi en una computadora.
+  if (isNativeApp && route.name === 'connect') {
     return (
       <ConnectPage
         onConnected={(url) => { setServer(url); navigate('#/') }}
-        onCancel={server ? () => navigate('#/ajustes') : undefined}
+        onCancel={() => navigate('#/ajustes')}
       />
     )
   }
   return (
-    <AppProvider key={server}>
+    <AppProvider key={server || 'celular'}>
       <Shell />
     </AppProvider>
   )

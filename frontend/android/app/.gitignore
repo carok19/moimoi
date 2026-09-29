@@ -1,2 +1,4 @@
 /build/*
 !/build/.npmkeep
+# Modelo de separación: lo genera scripts/android/modelo_demucs.py (en GitHub Actions)
+/src/main/assets/models/

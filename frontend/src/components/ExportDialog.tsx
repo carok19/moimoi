@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Download, Loader2, Package, Send, Share2 } from 'lucide-react'
 import { api, waitForJob } from '../api/client'
+import { isStandalone } from '../api/base'
 import type { Analysis, ExportRequest, GuideKit, Job, MixerChannel, MultitrackStatus, SendResult, Song, StemId } from '../api/types'
 import { useApp } from '../context'
 import { canShare, isNativeApp, saveFile, shareFile } from '../native'
@@ -35,6 +36,8 @@ const PRE_ROLL = [
 export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel, band, onClose }: Props) {
   const toast = useToast()
   const { settings } = useApp()
+  // En el celular por ahora: WAV, sin cambiar velocidad/tono y sin enviar directo a Multitrack.
+  const standalone = isStandalone()
   const stems = song.stems.map((s) => s.id)
   const missing = useMemo(() => stems.filter((s) => !bandCovers(s, band)), [stems, band])
   const hasBeats = Boolean(analysis?.beats.length)
@@ -47,7 +50,7 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
   const [guide, setGuide] = useState(settings.exportGuide)
   const [preRoll, setPreRoll] = useState(hasBeats ? settings.exportPreRollBars : 0)
   const changed = Math.abs(rate - 1) > 0.001 || semitones !== 0
-  const [apply, setApply] = useState(changed)
+  const [apply, setApply] = useState(changed && !standalone)
   const [job, setJob] = useState<Job | null>(null)
   const [jobTab, setJobTab] = useState<Tab>('multitrack')
   const [busy, setBusy] = useState(false)
@@ -59,8 +62,8 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
 
   useEffect(() => {
     api.guide().then(setKit).catch(() => setKit(null))
-    api.multitrackStatus().then(setTarget).catch(() => setTarget(null))
-  }, [])
+    if (!standalone) api.multitrackStatus().then(setTarget).catch(() => setTarget(null))
+  }, [standalone])
 
   const hasVoices = Boolean(kit && kit.count > 0)
   const activeSet = kit?.sets.find((s) => s.active)
@@ -231,7 +234,9 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
             <span className="track" />
             <span>
               Pista <b>Guía</b>: anuncia cada parte (Verso 1, Coro…) un compás antes
-              {kit && !hasVoices && <span className="tiny"> · <a href="#/ajustes">carga las voces en Ajustes → Voz guía</a></span>}
+              {kit && !hasVoices && (standalone
+                ? <span className="tiny muted"> · próximamente en el celular</span>
+                : <span className="tiny"> · <a href="#/ajustes">carga las voces en Ajustes → Voz guía</a></span>)}
               {hasVoices && activeSet && <span className="tiny muted"> · voces en {activeSet.name}</span>}
             </span>
           </label>
@@ -244,25 +249,25 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
               ))}
             </div>
           </div>
-          <div className="row wrap">
+          {!standalone && <div className="row wrap">
             <span className="grow small">Formato del audio</span>
             <div className="segmented">
               <button className={packFormat === 'wav' ? 'active' : ''} onClick={() => setPackFormat('wav')}>WAV (mejor calidad)</button>
               <button className={packFormat === 'mp3' ? 'active' : ''} onClick={() => setPackFormat('mp3')}>MP3 (liviano)</button>
             </div>
-          </div>
+          </div>}
           {packFormat === 'mp3' && (
             <div className="tiny muted">
               MP3 pesa unas 5 veces menos (mejor para mandarlo por WhatsApp), pero los celulares conectados a
               Multitrack Alabanza solo reproducen WAV.
             </div>
           )}
-          <div className="tiny muted row" style={{ gap: 6 }}>
+          {!standalone && <div className="tiny muted row" style={{ gap: 6 }}>
             <span className={`dot${target?.ok ? '' : ' err'}`} />
             {target === null ? 'Buscando Multitrack Alabanza…'
               : target.ok ? `Multitrack Alabanza abierto en ${target.url.replace(/^https?:\/\//, '')}${target.bloqueado ? ' (bloqueado: solo acepta desde esa computadora)' : ''}`
                 : `Multitrack Alabanza no está abierto en ${target.url.replace(/^https?:\/\//, '')} (puedes descargar o compartir el .zip)`}
-          </div>
+          </div>}
         </>
       )}
 
@@ -271,7 +276,7 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
           <div className="row">
             <span className="small muted grow">Formato</span>
             <div className="segmented">
-              {(['wav', 'mp3', 'flac'] as const).map((f) => (
+              {(standalone ? ['wav'] as const : ['wav', 'mp3', 'flac'] as const).map((f) => (
                 <button key={f} className={format === f ? 'active' : ''} onClick={() => setFormat(f)}>{f.toUpperCase()}</button>
               ))}
             </div>
@@ -298,7 +303,7 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
           <div className="row">
             <span className="small muted grow">Formato</span>
             <div className="segmented">
-              {(['wav', 'mp3'] as const).map((f) => (
+              {(standalone ? ['wav'] as const : ['wav', 'mp3'] as const).map((f) => (
                 <button key={f} className={format === f ? 'active' : ''} onClick={() => setFormat(f)}>{f.toUpperCase()}</button>
               ))}
             </div>
@@ -311,12 +316,17 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
         </>
       )}
 
-      {changed && (
+      {changed && !standalone && (
         <label className="toggle">
           <input type="checkbox" checked={apply} onChange={(e) => setApply(e.target.checked)} />
           <span className="track" />
           <span>Aplicar los cambios actuales: <b>{changesText}</b></span>
         </label>
+      )}
+      {changed && standalone && (
+        <div className="tiny muted">
+          En el celular, por ahora se exporta con la velocidad y el tono originales ({changesText} llega en la próxima versión).
+        </div>
       )}
 
       {job && running && (
@@ -337,7 +347,7 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
             <span className="grow small"><b>{result.name}</b> · {formatSize(result.size)}</span>
           </div>
           <div className="row wrap" style={{ gap: 8 }}>
-            {isZip && jobTab === 'multitrack' && (
+            {isZip && jobTab === 'multitrack' && !standalone && (
               <button className="btn primary" disabled={sending || !target?.ok} onClick={() => void send()}
                 title={target?.ok ? 'Abre la canción en Multitrack Alabanza' : 'Multitrack Alabanza no está abierto'}>
                 {sending ? <Loader2 size={16} className="spin" /> : <Send size={16} />}

@@ -3,7 +3,8 @@
 // En el navegador se usan las funciones equivalentes de la web cuando existen.
 
 import { registerPlugin, type PluginListenerHandle } from '@capacitor/core'
-import { apiUrl, isNativeApp } from './api/base'
+import { apiUrl, isNativeApp, isStandalone } from './api/base'
+import { Local } from './api/local'
 
 export { isNativeApp }
 
@@ -50,6 +51,11 @@ export function canShare(name: string): boolean {
  * En la app se descarga al celular y se abre el menú "Compartir" de Android.
  */
 export async function shareFile(url: string, name: string, onProgress?: (fraction: number) => void): Promise<ShareOutcome> {
+  if (isStandalone()) {
+    // El archivo ya está en el celular: se comparte directo.
+    await Local.shareFile({ url, name })
+    return 'shared'
+  }
   if (isNativeApp) {
     const uri = await nativeDownload(url, 'cache', name, onProgress)
     const { Share } = await import('@capacitor/share')
@@ -78,9 +84,14 @@ export async function shareFile(url: string, name: string, onProgress?: (fractio
 
 /**
  * Descarga un archivo. En la computadora (y en el navegador del celular) lo baja el navegador;
- * en la app queda en Documentos/MoiMoi.
+ * en la app queda en Descargas/MoiMoi (modo celular) o en Documentos/MoiMoi (con computadora).
  */
 export async function saveFile(url: string, name?: string, onProgress?: (fraction: number) => void): Promise<string | null> {
+  if (isStandalone()) {
+    const fileName = name || decodeURIComponent(url.split('/').pop()?.split('?')[0] || 'moimoi')
+    const { where } = await Local.saveFile({ url, name: fileName })
+    return where ?? null
+  }
   if (isNativeApp) {
     const fileName = name || decodeURIComponent(url.split('/').pop()?.split('?')[0] || 'moimoi')
     try {

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react'
+import { CheckCircle2, Laptop, Loader2, Smartphone, XCircle } from 'lucide-react'
 import { api } from '../api/client'
-import { apiUrl, isNativeApp, serverBase } from '../api/base'
+import { apiUrl, isNativeApp, isStandalone, serverBase, setServerBase } from '../api/base'
+import { navigate } from '../hooks/useHashRoute'
 import type { MultitrackStatus, PresetId, Quality, StemId } from '../api/types'
 import { GuideVoices } from '../components/GuideVoices'
 import { PhoneAccess } from '../components/PhoneAccess'
@@ -18,6 +19,36 @@ function Feature({ ok, label, hint }: { ok: boolean; label: string; hint?: strin
         <div>{label}</div>
         {!ok && hint && <div className="tiny muted">{hint}</div>}
       </div>
+    </div>
+  )
+}
+
+/** App del celular: todo se hace acá; opcionalmente se puede usar MoiMoi de una computadora. */
+function PhoneMode() {
+  if (isStandalone()) {
+    return (
+      <div className="stack">
+        <div className="small muted">
+          La separación, las pistas y las exportaciones se hacen <b>en este celular</b>: no hace falta computadora ni
+          internet. Si tienes MoiMoi abierto en una computadora (más rápido con tarjeta gráfica NVIDIA), también puedes
+          usarlo desde acá.
+        </div>
+        <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => navigate('#/conectar')}>
+          <Laptop size={16} />Usar MoiMoi de la computadora
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="stack">
+      <PhoneAccess />
+      <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => {
+        setServerBase(null)
+        window.location.hash = '#/'
+        window.location.reload()
+      }}>
+        <Smartphone size={16} />Usar solo el celular (sin computadora)
+      </button>
     </div>
   )
 }
@@ -44,7 +75,7 @@ function MultitrackSettings() {
   }
 
   useEffect(() => {
-    void check()
+    if (!isStandalone()) void check()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -54,14 +85,23 @@ function MultitrackSettings() {
     void check()
   }
 
+  const standalone = isStandalone()
   return (
     <>
-      <div className="small muted">
-        <b>Exportar → Multitrack</b> arma un .zip con una pista por instrumento, el <b>Click</b>, la <b>Guía</b> y las partes de
-        la canción (se abren como marcadores). Con <b>Enviar a Multitrack Alabanza</b> la canción se abre directo en el
-        programa, sin copiar archivos. También puedes compartir el .zip por WhatsApp.
-      </div>
-      <div className="row wrap">
+      {standalone ? (
+        <div className="small muted">
+          <b>Exportar → Multitrack</b> arma un .zip con una pista por instrumento (y el <b>Click</b>, la <b>Guía</b> y las
+          partes de la canción cuando estén en el celular). Compártelo por WhatsApp y ábrelo en Multitrack Alabanza con
+          <i> Cargar canción (.zip)</i>.
+        </div>
+      ) : (
+        <div className="small muted">
+          <b>Exportar → Multitrack</b> arma un .zip con una pista por instrumento, el <b>Click</b>, la <b>Guía</b> y las partes de
+          la canción (se abren como marcadores). Con <b>Enviar a Multitrack Alabanza</b> la canción se abre directo en el
+          programa, sin copiar archivos. También puedes compartir el .zip por WhatsApp.
+        </div>
+      )}
+      {!standalone && <div className="row wrap">
         <span className="grow">Dirección de Multitrack Alabanza</span>
         <input className="input" style={{ maxWidth: 260 }} value={address} onChange={(e) => setAddress(e.target.value)}
           onBlur={() => void commit()} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
@@ -69,8 +109,8 @@ function MultitrackSettings() {
         <button className="btn small" disabled={checking} onClick={() => void check(address)}>
           {checking && <Loader2 size={14} className="spin" />}Probar
         </button>
-      </div>
-      {status && (
+      </div>}
+      {status && !standalone && (
         <div className="row small" style={{ gap: 8 }}>
           <span className={`dot${status.ok ? '' : ' err'}`} />
           {status.ok ? `Multitrack Alabanza está abierto${status.bloqueado ? ' (bloqueado: solo acepta canciones desde su computadora)' : ''}.`
@@ -134,7 +174,12 @@ export function SettingsPage() {
 
         <section className="card">
           <h2>Voz guía y click</h2>
-          <GuideVoices />
+          {health?.features.guide === false ? (
+            <div className="small muted">
+              La voz guía (que anuncia "Verso 1, Coro…") y los sonidos de click del paquete llegan a la app del celular en
+              la próxima versión, junto con el análisis de tempo, acordes y partes.
+            </div>
+          ) : <GuideVoices />}
         </section>
 
         <section className="card">
@@ -143,8 +188,8 @@ export function SettingsPage() {
         </section>
 
         <section className="card">
-          <h2>Celulares y tablets</h2>
-          <PhoneAccess />
+          <h2>{isNativeApp ? 'Celular o computadora' : 'Celulares y tablets'}</h2>
+          {isNativeApp ? <PhoneMode /> : <PhoneAccess />}
         </section>
 
         <section className="card">
@@ -181,22 +226,31 @@ export function SettingsPage() {
                 <dt>Separación</dt><dd>{health.engine.detail}</dd>
                 <dt>Procesa con</dt>
                 <dd>{health.engine.device === 'cuda' ? `GPU NVIDIA${health.engine.gpu ? ` (${health.engine.gpu})` : ''}`
-                  : health.engine.device === 'mps' ? 'GPU de Apple' : 'Procesador (CPU)'}</dd>
+                  : health.engine.device === 'mps' ? 'GPU de Apple' : health.engine.device === 'phone' ? 'Este celular'
+                    : 'Procesador (CPU)'}</dd>
                 <dt>Versión</dt><dd>MoiMoi {health.version}</dd>
-                <dt>Carpeta de datos</dt><dd>{health.dataDir}</dd>
+                {!health.standalone && <><dt>Carpeta de datos</dt><dd>{health.dataDir}</dd></>}
               </dl>
-              <div className="stack" style={{ gap: 8 }}>
+              {health.standalone ? (
+                <div className="stack" style={{ gap: 8 }}>
+                  <Feature ok label="Separación de pistas en 2, 4 o 6 (Demucs, en el celular)" />
+                  <Feature ok label="Exportar pistas, mezcla y paquete para Multitrack (WAV)" />
+                  <Feature ok={false} label="Links de YouTube" hint="Próximamente en la app del celular" />
+                  <Feature ok={false} label="Tempo, acordes, partes, click y voz guía" hint="Próximamente en la app del celular" />
+                  <Feature ok={false} label="Exportar con otra velocidad o tono" hint="Próximamente en la app del celular" />
+                </div>
+              ) : <div className="stack" style={{ gap: 8 }}>
                 <Feature ok={health.engine.available} label="Separación de pistas (Demucs)" hint="Ejecuta el instalador: iniciar.bat / ./iniciar.sh" />
                 <Feature ok={health.features.youtube} label="Links de YouTube y otros sitios (yt-dlp)" hint='pip install -U "yt-dlp[default]"' />
                 <Feature ok={health.features.ffmpeg} label="Lectura de cualquier formato de audio o video (ffmpeg)" hint="pip install imageio-ffmpeg" />
                 <Feature ok={health.features.stretchExport} label="Exportar con otra velocidad o tono" hint="pip install pedalboard" />
                 <Feature ok={health.features.lyrics} label="Transcripción de letras (opcional)" hint="pip install faster-whisper" />
-              </div>
+              </div>}
             </>
           ) : <div className="muted">Sin conexión con el servidor.</div>}
         </section>
 
-        <section className="card">
+        {!isNativeApp && <section className="card">
           <h2>API para otras apps</h2>
           <div className="small muted">Otras apps pueden usar la API de MoiMoi en esta dirección:</div>
           <code className="block">{`${origin}/api/songs                         lista de canciones
@@ -205,7 +259,7 @@ ${origin}/api/songs/{id}/analysis           acordes, secciones, pulsos
 ${origin}/api/songs/{id}/download/{pista}.wav  pista: vocals, drums, bass, guitar, piano, other
 POST ${origin}/api/songs/{id}/exports       {"type": "multitrack", "click": true, "guide": true}`}</code>
           <a href={apiUrl('/docs')} target="_blank" rel="noopener" className="small">Documentación completa de la API</a>
-        </section>
+        </section>}
       </div>
     </main>
   )

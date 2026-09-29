@@ -133,7 +133,9 @@ export function LyricsPanel({ song, player, onSeek, onRefreshSong }: {
           </div>
         ) : (
           <div className="small muted" style={{ marginTop: 8 }}>
-            Para transcribir letras instala el complemento: <code>pip install faster-whisper</code> y reinicia MoiMoi.
+            {health?.standalone
+              ? 'La letra automática todavía no está en la app del celular.'
+              : <>Para transcribir letras instala el complemento: <code>pip install faster-whisper</code> y reinicia MoiMoi.</>}
           </div>
         )
       )}

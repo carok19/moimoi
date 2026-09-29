@@ -1,7 +1,7 @@
 // Dirección del servidor de MoiMoi.
 // - En el navegador, la interfaz la sirve el mismo MoiMoi: se usa la misma dirección ('').
-// - En la app de Android la interfaz viene dentro de la app y hay que decirle en qué
-//   computadora corre MoiMoi (por ejemplo http://192.168.1.20:4747).
+// - En la app de Android todo se hace en el celular ("modo celular", ver local.ts). Opcionalmente
+//   se puede conectar a MoiMoi en una computadora (por ejemplo http://192.168.1.20:4747).
 
 import { Capacitor } from '@capacitor/core'
 
@@ -33,6 +33,11 @@ export function serverBase(): string {
   if (!isNativeApp) return ''
   if (base === null) base = read(KEY) ?? ''
   return base
+}
+
+/** App de Android sin computadora elegida: MoiMoi corre dentro del celular. */
+export function isStandalone(): boolean {
+  return isNativeApp && !serverBase()
 }
 
 export function setServerBase(url: string | null): void {

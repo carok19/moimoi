@@ -1,0 +1,213 @@
+package com.moimoi.local;
+
+import com.moimoi.engine.DemucsSeparator;
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+/**
+ * Procesa una canción en el celular (como Worker._process_song): decodifica el archivo, lo pasa a
+ * 44,1 kHz estéreo, separa las pistas con Demucs y guarda las pistas y sus formas de onda.
+ */
+public final class Processor {
+
+    public static final int SAMPLE_RATE = 44100;
+    public static final double MAX_DURATION_S = 20 * 60;
+    public static final String MODEL = "htdemucs_6s";
+    /** Techo de las pistas y de su suma (audio_io.peak_normalize_set). */
+    private static final float CEILING = 0.98f;
+    /** Margen sobre el pico de la mezcla: una pista sola casi nunca supera a la mezcla por más que esto. */
+    private static final float HEADROOM = 1.12f;
+
+    private final Store store;
+    private final Platform platform;
+
+    public Processor(Store store, Platform platform) {
+        this.store = store;
+        this.platform = platform;
+    }
+
+    /** Reparte el avance total (0-1) entre las etapas de un trabajo (como worker.Stage). */
+    static final class Stage {
+        private final Map<String, double[]> spans = new LinkedHashMap<>();
+
+        Stage(Object... plan) {
+            double total = 0;
+            for (int i = 1; i < plan.length; i += 2) {
+                total += ((Number) plan[i]).doubleValue();
+            }
+            double acc = 0;
+            for (int i = 0; i < plan.length; i += 2) {
+                double weight = ((Number) plan[i + 1]).doubleValue();
+                spans.put((String) plan[i], new double[] {acc / total, weight / total});
+                acc += weight;
+            }
+        }
+
+        double at(String name, double fraction) {
+            double[] span = spans.get(name);
+            return span[0] + span[1] * Math.min(1.0, Math.max(0.0, fraction));
+        }
+    }
+
+    public JSONObject process(JSONObject job, Jobs.Reporter jobReport) throws Exception {
+        final String songId = job.optString("song_id");
+        JSONObject song = store.getSong(songId);
+        if (song == null) {
+            throw new IllegalStateException("La canción ya no existe");
+        }
+        Store.SongFiles paths = store.files(songId);
+        paths.create();
+        Stems.Preset preset = Stems.PRESETS.get(song.optString("preset"));
+        if (preset == null) {
+            preset = Stems.PRESETS.get(Stems.DEFAULT_PRESET);
+        }
+        final String title = song.optString("title", "Canción");
+        final Stage stage = new Stage("decode", 4, "separate", 90, "save", 2);
+        store.updateSong(songId, "status", "queued", "error", null, "stage", "Preparando…");
+
+        File source = paths.source();
+        if (source == null) {
+            throw new IOException("No se encontró el archivo de audio original");
+        }
+        File tmpDir = new File(platform.cacheDir(), "proceso-" + songId);
+        Store.removeTree(tmpDir);
+        if (!tmpDir.mkdirs()) {
+            throw new IOException("No se pudo crear la carpeta temporal");
+        }
+        final Reporter report = new Reporter(jobReport, songId, title, stage);
+        Pcm.Cancel cancel = jobReport::cancelled;
+        StemsSink sink = null;
+        try {
+            // 1) Decodificar y pasar a 44,1 kHz estéreo.
+            report.at("decode", 0.0, "Leyendo el audio…", "separating");
+            File raw = new File(tmpDir, "original.f32");
+            Platform.Decoded decoded = platform.decode(source, raw, cancel,
+                    (f) -> report.at("decode", 0.8 * f, "Leyendo el audio…", "separating"));
+            File audioFile = raw;
+            if (decoded.sampleRate != SAMPLE_RATE || decoded.channels != 2) {
+                File converted = new File(tmpDir, "estereo.f32");
+                try (Pcm.Reader in = new Pcm.Reader(raw, decoded.channels, decoded.sampleRate)) {
+                    Pcm.toStereo(in, SAMPLE_RATE, converted, cancel);
+                }
+                raw.delete();
+                audioFile = converted;
+            }
+            try (Pcm.Reader audio = new Pcm.Reader(audioFile, 2, SAMPLE_RATE)) {
+                double duration = audio.frames / (double) SAMPLE_RATE;
+                if (duration > MAX_DURATION_S) {
+                    throw new IOException(String.format(java.util.Locale.US,
+                            "La canción dura %.1f min; el máximo es %.0f min.", duration / 60, MAX_DURATION_S / 60));
+                }
+                if (duration < 1.0) {
+                    throw new IOException("El audio es demasiado corto (menos de 1 segundo).");
+                }
+                store.updateSong(songId, "duration", Json.round(duration, 3), "sample_rate", SAMPLE_RATE);
+                report.at("decode", 1.0, "Audio listo", "separating");
+
+                // 2) Separar (las pistas se van guardando a medida que salen).
+                report.at("separate", 0.0, "Preparando la IA…", "separating");
+                float inputPeak = audio.peak();
+                float gain = inputPeak * HEADROOM > CEILING ? CEILING / (inputPeak * HEADROOM) : 1f;
+                List<String> stems = new ArrayList<>(preset.stems);
+                File stemsDir = paths.stemsDir();
+                if (!stemsDir.isDirectory() && !stemsDir.mkdirs()) {
+                    throw new IOException("No se pudo crear la carpeta de las pistas");
+                }
+                try (DemucsSeparator separator = platform.openSeparator()) {
+                    DemucsSeparator.ModelInfo info = separator.info();
+                    sink = new StemsSink(stems, Stems.mapping(preset), info.sources.length, stemsDir, SAMPLE_RATE,
+                            gain, audio.frames, info.segmentSamples);
+                    report.at("separate", 0.0, "Separando pistas con IA…", "separating");
+                    separator.separate(audio, sink, new DemucsSeparator.Listener() {
+                        @Override
+                        public void progress(double fraction) {
+                            report.at("separate", fraction, "Separando pistas con IA…", "separating");
+                        }
+
+                        @Override
+                        public boolean cancelled() {
+                            return jobReport.cancelled();
+                        }
+                    });
+                }
+
+                // 3) Guardar.
+                report.at("save", 0.0, "Guardando pistas…", "separating");
+                sink.finish();
+                JSONObject peaks = sink.peaksJson();
+                sink = null;
+                Json.write(paths.peaks(), peaks);
+                File[] old = stemsDir.listFiles();
+                if (old != null) {
+                    for (File f : old) {
+                        String name = f.getName();
+                        String stem = name.endsWith(".wav") ? name.substring(0, name.length() - 4) : null;
+                        if (stem == null || !stems.contains(stem)) {
+                            f.delete();
+                        }
+                    }
+                }
+                List<String> names = Stems.ordered(stems);
+                store.updateSong(songId, "stems", Json.array(names), "model", MODEL);
+                report.at("save", 1.0, "Pistas listas", "separating");
+                store.updateSong(songId, "status", "ready", "progress", 1.0, "stage", "Lista", "error", null);
+                JSONObject result = new JSONObject();
+                result.put("stems", new JSONArray(names));
+                result.put("model", MODEL);
+                return result;
+            }
+        } finally {
+            if (sink != null) {
+                sink.abort();
+            }
+            Store.removeTree(tmpDir);
+        }
+    }
+
+    /** Avance del trabajo, de la canción y de la notificación a la vez. */
+    private final class Reporter {
+        private final Jobs.Reporter job;
+        private final String songId;
+        private final String title;
+        private final Stage stage;
+        private long lastSong;
+
+        Reporter(Jobs.Reporter job, String songId, String title, Stage stage) {
+            this.job = job;
+            this.songId = songId;
+            this.title = title;
+            this.stage = stage;
+        }
+
+        void at(String name, double fraction, String message, String status) {
+            double total = stage.at(name, fraction);
+            job.report(total, message); // lanza Cancelled si se pidió cancelar
+            long now = System.currentTimeMillis();
+            if (now - lastSong >= 250 || fraction >= 1.0) {
+                lastSong = now;
+                store.updateSong(songId, "progress", Json.round(total, 4), "stage", message, "status", status);
+                platform.progress(title, total, message);
+            }
+        }
+    }
+
+    /** Pone en cola de nuevo las canciones que quedaron a medio procesar (se cerró la app). */
+    public static List<String> interrupted(Store store) throws JSONException {
+        List<String> out = new ArrayList<>();
+        for (JSONObject song : store.listSongs()) {
+            String status = song.optString("status");
+            if (status.equals("queued") || status.equals("downloading") || status.equals("separating")
+                    || status.equals("analyzing")) {
+                out.add(0, song.optString("id")); // en el orden en que se agregaron
+            }
+        }
+        return out;
+    }
+}

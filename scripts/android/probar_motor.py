@@ -80,6 +80,7 @@ def main() -> None:
                         ",".join(meta["sources"]), str(tmp / "entrada.f32"), str(tmp / "fuente"),
                         str(args.hilos), str(meta["segmentSamples"])], check=True)
         worst = 0.0
+        worst_snr = float("inf")
         for s, name in enumerate(meta["sources"]):
             got = np.frombuffer((tmp / f"fuente{s}.f32").read_bytes(), dtype="<f4").reshape(2, -1)
             ref = expected[s]
@@ -87,7 +88,12 @@ def main() -> None:
             snr = 10 * np.log10(np.sum(ref ** 2) / max(np.sum(err ** 2), 1e-20))
             print(f"  {name:7s} error máx {np.max(np.abs(err)):.2e}  SNR {snr:6.1f} dB")
             worst = max(worst, float(np.max(np.abs(err)) / (np.max(np.abs(ref)) + 1e-9)))
-    if worst > 1e-3:
+            worst_snr = min(worst_snr, float(snr))
+    if meta.get("fp16"):
+        # Pesos guardados en 16 bits: el resultado cambia un poco (muy por debajo de lo audible).
+        if worst_snr < 40:
+            raise SystemExit(f"El motor de la app no coincide con Demucs (SNR {worst_snr:.1f} dB)")
+    elif worst > 1e-3:
         raise SystemExit(f"El motor de la app no coincide con Demucs (error relativo {worst:.2e})")
     print("El motor de la app coincide con Demucs.")
 

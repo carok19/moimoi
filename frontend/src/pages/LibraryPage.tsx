@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Search, Smartphone } from 'lucide-react'
 import { api } from '../api/client'
-import { isNativeApp, serverBase } from '../api/base'
+import { isNativeApp, isStandalone, serverBase } from '../api/base'
 import type { Song } from '../api/types'
 import { AddSongPanel } from '../components/AddSongPanel'
 import { SongCard } from '../components/SongCard'
@@ -11,8 +11,20 @@ import { hashParams, navigate } from '../hooks/useHashRoute'
 
 const PROCESSING = new Set(['queued', 'downloading', 'separating', 'analyzing'])
 
-function EngineBanner() {
+function EngineBanner({ empty }: { empty: boolean }) {
   const { health, offline } = useApp()
+  if (isStandalone()) {
+    if (!empty) return null
+    return (
+      <div className="banner info small">
+        <div>
+          <b>Todo se hace en este celular</b>, sin computadora ni internet: elige una canción y MoiMoi separa la voz,
+          la batería, el bajo, la guitarra, el piano y lo demás. Cada canción tarda unos minutos (depende del celular);
+          puedes minimizar la app mientras tanto. También puedes compartir audios con MoiMoi desde WhatsApp u otras apps.
+        </div>
+      </div>
+    )
+  }
   if (offline && isNativeApp) {
     return (
       <div className="banner err">
@@ -95,6 +107,10 @@ export function LibraryPage() {
 
   useEffect(() => {
     void refresh()
+    // Canciones agregadas desde otra app (Compartir → MoiMoi).
+    const onAdded = () => void refresh()
+    window.addEventListener('moimoi:canciones', onAdded)
+    return () => window.removeEventListener('moimoi:canciones', onAdded)
   }, [refresh])
 
   useEffect(() => {
@@ -111,7 +127,7 @@ export function LibraryPage() {
 
   return (
     <main className="page">
-      <EngineBanner />
+      <EngineBanner empty={songs !== null && songs.length === 0} />
       <AddSongPanel onAdded={() => void refresh()} sharedLink={sharedLink} />
       <div className="library-head">
         <div>
@@ -132,8 +148,9 @@ export function LibraryPage() {
       {songs && songs.length === 0 && (
         <div className="empty">
           <h2 style={{ marginBottom: 6 }}>Todavía no hay canciones</h2>
-          Pega un link de YouTube o sube un archivo: MoiMoi separa la voz, la batería, el bajo, la guitarra, el
-          piano y lo demás, y detecta tempo, tonalidad, acordes y partes de la canción.
+          {isStandalone()
+            ? 'Elige una canción del celular: MoiMoi separa la voz, la batería, el bajo, la guitarra, el piano y lo demás, y la puedes escuchar, mezclar y compartir.'
+            : 'Pega un link de YouTube o sube un archivo: MoiMoi separa la voz, la batería, el bajo, la guitarra, el piano y lo demás, y detecta tempo, tonalidad, acordes y partes de la canción.'}
         </div>
       )}
       <div className="songs">

@@ -23,7 +23,9 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const PROCESSING = new Set(['queued', 'downloading', 'separating', 'analyzing'])
 
 export function PlayerPage({ songId }: { songId: string }) {
-  const { settings } = useApp()
+  const { settings, health } = useApp()
+  // En el celular el análisis (tempo, acordes, partes) llega en la próxima versión.
+  const canAnalyze = health?.features.analysis ?? true
   const toast = useToast()
   const [reloadKey, setReloadKey] = useState(0)
   const [song, setSong] = useState<Song | null>(null)
@@ -377,7 +379,7 @@ export function PlayerPage({ songId }: { songId: string }) {
                   <ExternalLink size={15} />Abrir link original
                 </button>
               )}
-              <button onClick={async () => {
+              {canAnalyze && <button onClick={async () => {
                 close()
                 try {
                   await api.reanalyze(song.id)
@@ -386,7 +388,7 @@ export function PlayerPage({ songId }: { songId: string }) {
                 } catch (err) {
                   toast.error(err)
                 }
-              }}><RefreshCw size={15} />Volver a analizar</button>
+              }}><RefreshCw size={15} />Volver a analizar</button>}
               <div className="sep" />
               <button onClick={async () => {
                 close()

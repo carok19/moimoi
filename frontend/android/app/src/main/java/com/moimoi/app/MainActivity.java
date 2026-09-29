@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // Plugins propios de la app (los de npm se registran solos).
         registerPlugin(SharedLinkPlugin.class);
+        registerPlugin(LocalPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

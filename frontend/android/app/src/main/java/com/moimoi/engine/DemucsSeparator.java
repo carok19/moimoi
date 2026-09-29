@@ -73,16 +73,34 @@ public final class DemucsSeparator implements AutoCloseable {
     private final int threads;
 
     public DemucsSeparator(String modelPath, ModelInfo info, int threads) throws OrtException {
+        this(modelPath, null, info, threads);
+    }
+
+    /** Con el modelo en memoria (por ejemplo mapeado directo desde el APK, sin copiarlo). */
+    public DemucsSeparator(ByteBuffer model, ModelInfo info, int threads) throws OrtException {
+        this(null, model, info, threads);
+    }
+
+    private DemucsSeparator(String modelPath, ByteBuffer model, ModelInfo info, int threads) throws OrtException {
         this.info = info;
         this.threads = Math.max(1, threads);
         env = OrtEnvironment.getEnvironment();
+        try {
+            env.setTelemetry(false);
+        } catch (OrtException | UnsupportedOperationException ignored) {
+            // solo existe en algunas plataformas
+        }
         OrtSession.SessionOptions options = new OrtSession.SessionOptions();
         options.setIntraOpNumThreads(this.threads);
         options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
         // Los números "desnormalizados" (menores a 1e-38) hacen muy lenta la CPU y no se escuchan:
         // con audio real el modelo tarda la mitad al tratarlos como cero.
         options.addConfigEntry("session.set_denormal_as_zero", "1");
-        session = env.createSession(modelPath, options);
+        // Sin el "arena" de ONNX Runtime la memoria se devuelve después de cada segmento: el pico
+        // baja de ~3 GB a ~1 GB (clave en el celular) y hasta es un poco más rápido.
+        options.setCPUArenaAllocator(false);
+        options.setMemoryPatternOptimization(false);
+        session = model != null ? env.createSession(model, options) : env.createSession(modelPath, options);
     }
 
     public ModelInfo info() {
@@ -135,7 +153,13 @@ public final class DemucsSeparator implements AutoCloseable {
         float[] outRight = new float[segLen];
 
         ExecutorService pool = Executors.newFixedThreadPool(threads);
-        final ThreadLocal<Workspace> workspace = ThreadLocal.withInitial(() -> new Workspace(plane));
+        // (ThreadLocal.withInitial no existe en Android 7)
+        final ThreadLocal<Workspace> workspace = new ThreadLocal<Workspace>() {
+            @Override
+            protected Workspace initialValue() {
+                return new Workspace(plane);
+            }
+        };
         try (OnnxTensor tMix = OnnxTensor.createTensor(env, inMix, mixShape);
              OnnxTensor tSpec = OnnxTensor.createTensor(env, inSpec, specShape);
              OnnxTensor tOutSpec = OnnxTensor.createTensor(env, outSpec, outSpecShape);

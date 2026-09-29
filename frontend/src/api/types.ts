@@ -146,8 +146,20 @@ export interface Job {
 export interface Health {
   ok: boolean
   version: string
+  /** true en la app del celular sin computadora (todo se hace en el celular). */
+  standalone?: boolean
+  /** device: 'cuda' | 'mps' | 'cpu' en la computadora; 'phone' en el celular. */
   engine: { available: boolean; device: string | null; gpu?: string | null; detail: string }
-  features: { youtube: boolean; lyrics: boolean; stretchExport: boolean; ffmpeg: boolean }
+  features: {
+    youtube: boolean
+    lyrics: boolean
+    stretchExport: boolean
+    ffmpeg: boolean
+    /** Tempo, acordes y partes (en la computadora siempre; en el celular, próximamente). */
+    analysis?: boolean
+    /** Voz guía y sonidos de click. */
+    guide?: boolean
+  }
   dataDir: string
 }
 

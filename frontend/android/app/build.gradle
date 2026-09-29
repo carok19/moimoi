@@ -11,6 +11,10 @@ android {
         versionCode((System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger())
         versionName "1.0.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // Celulares de 64 bits (arm64) y el emulador (x86_64): la separación necesita 64 bits y así el APK pesa menos.
+        ndk {
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
@@ -26,6 +30,10 @@ android {
             keyAlias "androiddebugkey"
             keyPassword "android"
         }
+    }
+    androidResources {
+        // El modelo de separación se lee directo del APK (mapeado en memoria): va sin comprimir.
+        noCompress 'onnx'
     }
     buildTypes {
         debug {
@@ -50,6 +58,8 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    // Motor de separación de pistas en el celular (Demucs en ONNX).
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.30.0'
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

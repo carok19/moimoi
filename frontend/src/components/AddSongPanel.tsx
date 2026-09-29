@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link2, Loader2, Search, Upload, Wand2 } from 'lucide-react'
 import { api } from '../api/client'
+import { isStandalone } from '../api/base'
+import { askNotifications } from '../api/local'
 import type { PresetId, Quality, SearchResult, UrlInfo } from '../api/types'
 import { useApp } from '../context'
 import { formatTime } from '../music/theory'
@@ -14,7 +16,9 @@ const URL_RE = /https?:\/\/[^\s]+/g
 export function AddSongPanel({ onAdded, sharedLink }: { onAdded: () => void; sharedLink?: string | null }) {
   const { settings, health } = useApp()
   const toast = useToast()
-  const [tab, setTab] = useState<Tab>('link')
+  const standalone = isStandalone()
+  // En el celular (sin links todavía) se empieza por "Subir archivo".
+  const [tab, setTab] = useState<Tab>(standalone ? 'upload' : 'link')
   const [preset, setPreset] = useState<PresetId>(settings.defaultPreset)
   const [quality, setQuality] = useState<Quality>(settings.defaultQuality)
   const touched = useRef(false)
@@ -26,27 +30,35 @@ export function AddSongPanel({ onAdded, sharedLink }: { onAdded: () => void; sha
     }
   }, [settings.defaultPreset, settings.defaultQuality])
 
-  const youtube = health?.features.youtube ?? true
+  const youtube = health?.features.youtube ?? !standalone
+  const showLinks = youtube || !standalone
 
   useEffect(() => {
-    if (sharedLink) setTab('link')
-  }, [sharedLink])
+    if (sharedLink && showLinks) setTab('link')
+    else if (sharedLink) toast.show('Los links de YouTube en el celular llegan en la próxima versión. Por ahora, elige el archivo de audio.')
+  }, [sharedLink, showLinks, toast])
+
+  useEffect(() => {
+    if (!showLinks && tab !== 'upload') setTab('upload')
+  }, [showLinks, tab])
 
   return (
     <section className="card add-card" aria-label="Agregar canción">
       <div className="row wrap add-tabs">
         <h2 className="grow">Agregar canción</h2>
-        <div className="segmented" role="tablist">
-          <button role="tab" className={tab === 'link' ? 'active' : ''} onClick={() => setTab('link')}>
-            <Link2 size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Link
-          </button>
-          <button role="tab" className={tab === 'search' ? 'active' : ''} onClick={() => setTab('search')}>
-            <Search size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Buscar en YouTube
-          </button>
-          <button role="tab" className={tab === 'upload' ? 'active' : ''} onClick={() => setTab('upload')}>
-            <Upload size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Subir archivo
-          </button>
-        </div>
+        {showLinks && (
+          <div className="segmented" role="tablist">
+            <button role="tab" className={tab === 'link' ? 'active' : ''} onClick={() => setTab('link')}>
+              <Link2 size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Link
+            </button>
+            <button role="tab" className={tab === 'search' ? 'active' : ''} onClick={() => setTab('search')}>
+              <Search size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Buscar en YouTube
+            </button>
+            <button role="tab" className={tab === 'upload' ? 'active' : ''} onClick={() => setTab('upload')}>
+              <Upload size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Subir archivo
+            </button>
+          </div>
+        )}
       </div>
 
       {!youtube && tab !== 'upload' && (
@@ -57,7 +69,9 @@ export function AddSongPanel({ onAdded, sharedLink }: { onAdded: () => void; sha
 
       {tab === 'link' && <LinkTab preset={preset} quality={quality} onAdded={onAdded} disabled={!youtube} initial={sharedLink} />}
       {tab === 'search' && <SearchTab preset={preset} quality={quality} onAdded={onAdded} disabled={!youtube} />}
-      {tab === 'upload' && <UploadTab preset={preset} quality={quality} onAdded={onAdded} />}
+      {tab === 'upload' && (standalone
+        ? <PhoneUploadTab preset={preset} quality={quality} onAdded={onAdded} />
+        : <UploadTab preset={preset} quality={quality} onAdded={onAdded} />)}
 
       <PresetPicker
         preset={preset}
@@ -215,6 +229,45 @@ function SearchTab({ preset, quality, onAdded, disabled }: TabProps) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/** Modo celular: el selector de archivos de Android (la app copia la canción y la separa). */
+function PhoneUploadTab({ preset, onAdded }: TabProps) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+
+  const pick = async () => {
+    setBusy(true)
+    askNotifications()
+    try {
+      const { songs, errors } = await api.pickFiles(preset)
+      if (songs.length) {
+        toast.show(songs.length === 1 ? `"${songs[0].title}" agregada: separando pistas…`
+          : `${songs.length} canciones agregadas: se separan de a una`, 'ok')
+        onAdded()
+      }
+      for (const e of errors) toast.show(`${e.name}: ${e.error}`, 'err', 7000)
+    } catch (err) {
+      toast.error(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="dropzone" onClick={() => !busy && void pick()} role="button" tabIndex={0}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && !busy && void pick()}>
+        {busy ? <Loader2 size={26} className="spin" color="#b7a3ff" /> : <Upload size={26} color="#b7a3ff" />}
+        <b>{busy ? 'Copiando la canción…' : 'Elegir canciones del celular'}</b>
+        <span className="small muted">MP3, M4A, WAV, FLAC, OGG, audios de WhatsApp o videos · hasta 20 minutos</span>
+      </div>
+      <p className="tiny faint" style={{ margin: '10px 2px 0' }}>
+        También puedes compartir un audio con MoiMoi desde WhatsApp, Archivos u otra app. Usa solo música que tengas
+        permiso para usar (tus propias grabaciones, práctica personal, ensayo).
+      </p>
     </div>
   )
 }

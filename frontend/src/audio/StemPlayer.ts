@@ -63,6 +63,50 @@ function toInt16(data: Float32Array): Int16Array {
   return out
 }
 
+/**
+ * WAV PCM de 16 bits a la frecuencia del reproductor (las pistas que separa la app del celular): se
+ * leen directo, sin decodeAudioData (que las pasaría a 32 bits y usaría el doble de memoria).
+ */
+function parseWav16(buffer: ArrayBuffer, sampleRate: number): Int16Array[] | null {
+  if (buffer.byteLength < 44) return null
+  const view = new DataView(buffer)
+  const tag = (offset: number) => String.fromCharCode(view.getUint8(offset), view.getUint8(offset + 1),
+    view.getUint8(offset + 2), view.getUint8(offset + 3))
+  if (tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return null
+  let pos = 12
+  let channels = 0
+  let rate = 0
+  let bits = 0
+  let format = 0
+  while (pos + 8 <= buffer.byteLength) {
+    const id = tag(pos)
+    const size = view.getUint32(pos + 4, true)
+    if (id === 'fmt ') {
+      format = view.getUint16(pos + 8, true)
+      channels = view.getUint16(pos + 10, true)
+      rate = view.getUint32(pos + 12, true)
+      bits = view.getUint16(pos + 22, true)
+    } else if (id === 'data') {
+      if (format !== 1 || bits !== 16 || rate !== sampleRate || channels < 1 || channels > 2) return null
+      const start = pos + 8
+      const frames = Math.floor(Math.min(size, buffer.byteLength - start) / (2 * channels))
+      const out = Array.from({ length: channels }, () => new Int16Array(frames))
+      const data = new Int16Array(buffer, start, frames * channels)
+      if (channels === 1) out[0].set(data)
+      else {
+        const [l, r] = out
+        for (let i = 0, j = 0; i < frames; i++, j += 2) {
+          l[i] = data[j]
+          r[i] = data[j + 1]
+        }
+      }
+      return out
+    }
+    pos += 8 + size + (size & 1)
+  }
+  return null
+}
+
 async function fetchWithProgress(
   url: string,
   onProgress: (loaded: number, total: number) => void,
@@ -205,24 +249,33 @@ export class StemPlayer {
       onProgress?.(0.75 * (total ? done / total : 0), 'Descargando pistas…')
     }
     onProgress?.(0, 'Descargando pistas…')
-    const buffers: (ArrayBuffer | null)[] = await Promise.all(
-      stems.map((stem) =>
-        fetchWithProgress(stem.url, (l, t) => {
-          loaded.set(stem.id, l)
-          totals.set(stem.id, t)
-          report()
-        }, signal),
-      ),
-    )
+    // Pistas del mismo celular: de a una (así nunca están todas juntas en memoria dos veces).
+    const local = stems.every((stem) => stem.url.includes('/_capacitor_file_'))
+    const fetchStem = (stem: StemSource, index: number) => fetchWithProgress(stem.url, (l, t) => {
+      if (local) {
+        onProgress?.((index + 0.9 * (t ? l / t : 1)) / stems.length, `Cargando ${stem.name}…`)
+        return
+      }
+      loaded.set(stem.id, l)
+      totals.set(stem.id, t)
+      report()
+    }, signal)
+    const buffers: (Promise<ArrayBuffer> | null)[] = local ? stems.map(() => null) : stems.map(fetchStem)
     for (let i = 0; i < stems.length; i++) {
       if (signal?.aborted || this.destroyed) throw new DOMException('Cancelado', 'AbortError')
       const stem = stems[i]
-      onProgress?.(0.75 + (0.25 * i) / stems.length, `Preparando ${stem.name}…`)
-      const decoded = await this.ctx.decodeAudioData(buffers[i]!)
+      const buffer = await (buffers[i] ?? fetchStem(stem, i))
       buffers[i] = null
-      this.duration = Math.max(this.duration, decoded.duration)
-      const data: Int16Array[] = []
-      for (let c = 0; c < Math.min(2, decoded.numberOfChannels); c++) data.push(toInt16(decoded.getChannelData(c)))
+      onProgress?.(local ? (i + 0.9) / stems.length : 0.75 + (0.25 * i) / stems.length, `Preparando ${stem.name}…`)
+      let data = parseWav16(buffer, this.ctx.sampleRate)
+      if (data) {
+        this.duration = Math.max(this.duration, data[0].length / this.ctx.sampleRate)
+      } else {
+        const decoded = await this.ctx.decodeAudioData(buffer)
+        this.duration = Math.max(this.duration, decoded.duration)
+        data = []
+        for (let c = 0; c < Math.min(2, decoded.numberOfChannels); c++) data.push(toInt16(decoded.getChannelData(c)))
+      }
       const node = await SignalsmithStretch(this.ctx)
       await node.addBuffers(data, data.map((d) => d.buffer))
       const gain = this.ctx.createGain()

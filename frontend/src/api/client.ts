@@ -1,4 +1,5 @@
-import { apiUrl, isNativeApp } from './base'
+import { apiUrl, isNativeApp, isStandalone } from './base'
+import { Local, pickAudio, type ImportResult } from './local'
 import type {
   Analysis, ExportRequest, GuideKit, GuideUploadResult, Health, Job, Lyrics, LyricsLine, MultitrackStatus,
   NetworkInfo, Peaks, PresetId, Presets, Quality, SearchResult, SendResult, Settings, Song, SongSettings, UrlInfo,
@@ -28,7 +29,30 @@ const OFFLINE = isNativeApp
   ? 'No se pudo conectar con MoiMoi. ¿Está abierto en la computadora y el celular está en la misma red WiFi?'
   : 'No se pudo conectar con MoiMoi. ¿Está abierto el programa?'
 
+/** Modo celular: el mismo pedido, pero lo responde la app (com.moimoi.local). */
+async function localRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const body = typeof init?.body === 'string' ? init.body : undefined
+  let response: { status: number; body: string }
+  try {
+    response = await Local.request({ method: init?.method ?? 'GET', path, body })
+  } catch (err) {
+    throw new ApiError(String((err as Error)?.message ?? err) || 'Error de la app', 0)
+  }
+  let data: unknown = null
+  try {
+    data = JSON.parse(response.body)
+  } catch {
+    // respuesta vacía
+  }
+  if (response.status >= 400) {
+    const detail = (data as { detail?: unknown } | null)?.detail
+    throw new ApiError(typeof detail === 'string' ? detail : `Error ${response.status}`, response.status)
+  }
+  return data as T
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (isStandalone()) return localRequest<T>(path, init)
   let response: Response
   try {
     response = await fetch(apiUrl(path), init)
@@ -101,6 +125,9 @@ export const api = {
     request<MultitrackStatus>(`/api/multitrack${url ? `?url=${encodeURIComponent(url)}` : ''}`),
   sendToMultitrack: (jobId: string, url?: string) => request<SendResult>(`/api/jobs/${jobId}/enviar`, json('POST', { url })),
   network: () => request<NetworkInfo>('/api/red'),
+
+  /** Modo celular: elegir canciones del celular (la app las copia y las pone en cola). */
+  pickFiles: (preset: PresetId): Promise<ImportResult> => pickAudio(preset),
 
   /** Sube un archivo con progreso (fetch no informa el avance de la subida). */
   upload(file: File, preset: PresetId, quality: Quality, onProgress?: (fraction: number) => void): Promise<Song> {

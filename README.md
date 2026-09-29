@@ -10,8 +10,9 @@ ustedes y suena solo lo que les falta, y con **Exportar → Multitrack** generas
 anuncia cada parte ("Verso 1", "Coro"…), cuenta inicial y las partes como marcadores. El paquete se envía
 directo a Multitrack Alabanza o se comparte por WhatsApp.
 
-También se usa desde el **celular**: con la [app de Android](#en-el-celular-android) (o el navegador) agregas
-canciones, las escuchas, exportas y compartes; la separación la hace la computadora.
+Y está la **app de Android**, que funciona como Moises: la instalas, eliges una canción del celular y **el
+mismo celular la separa**, sin computadora ni internet (ver [En el celular](#en-el-celular-android)). Si
+prefieres, la app también puede usar MoiMoi de la computadora.
 
 > MoiMoi es un proyecto independiente inspirado en apps como Moises; no está afiliado a ellas.
 
@@ -34,7 +35,7 @@ canciones, las escuchas, exportas y compartes; la separación la hace la computa
 | **Exportar** | Pistas sueltas (WAV/MP3/FLAC), la mezcla que estás escuchando, o el paquete para Multitrack. Opcionalmente con la velocidad y el tono aplicados (p. ej. para bajar la canción a la tonalidad del cantante). |
 | **Voz guía y click** | Pista **Guía** con tus voces guía (el paquete que descargaste o grabaciones tuyas): anuncia cada parte un compás antes, cuenta "1, 2, 3, 4" antes de empezar y avisa "Sube tono" donde la canción modula. Click con el sonido que elijas. |
 | **Multitrack Alabanza** | **Enviar a Multitrack Alabanza** abre la canción directo en el programa (misma computadora o red), con las pistas en orden, sus nombres y las partes como marcadores. |
-| **Celular** | App de Android y acceso desde el navegador del celular. **Compartir** el paquete por WhatsApp, Drive, etc. "Compartir → MoiMoi" desde YouTube agrega la canción. |
+| **Celular** | App de Android que **separa en el mismo celular** (sin computadora ni internet), o conectada a la computadora; también desde el navegador del celular. **Compartir** pistas y paquetes por WhatsApp, Drive, etc. "Compartir → MoiMoi" de un audio (WhatsApp, Archivos…) lo agrega y lo separa. |
 | **API** | Otras apps pueden listar canciones, bajar pistas y pedir exportaciones (ver [API](#api)). |
 
 ---
@@ -105,37 +106,49 @@ Todo lo que ajustas (volúmenes, velocidad, tono, loop, nombres de las partes) q
 
 ## En el celular (Android)
 
-MoiMoi corre en la computadora (ahí se separan las canciones) y el celular se conecta por la **misma red
-WiFi**. Desde el celular puedes agregar canciones (links o archivos del celular), escuchar y mezclar las
-pistas, cambiar velocidad y tono, exportar y **compartir por WhatsApp**.
-
-**App de Android (recomendada)**
+**La app de Android hace todo en el celular**: la instalas, eliges una canción y el celular separa la voz, la
+batería, el bajo, la guitarra, el piano y lo demás (Demucs de 6 pistas, el mismo modelo que en la
+computadora). No hace falta computadora ni internet.
 
 1. Descarga **MoiMoi.apk** en el celular desde la versión
    [`android`](https://github.com/carok19/moimoi/releases/tag/android) del repositorio (la compila GitHub
    Actions con cada cambio). Como el repositorio es privado, hay que tener la sesión de GitHub iniciada en el
    navegador del celular; si no, descárgalo en la computadora y pásalo al celular (WhatsApp, cable o Drive).
-   También está el código QR en *Ajustes → Celulares y tablets*.
-2. Ábrelo e instálalo (Android pide permiso para instalar apps de fuera de Play Store).
-3. Abre MoiMoi en la computadora. En la ventana de MoiMoi (y en *Ajustes → Celulares y tablets*) aparece la
-   dirección de la computadora, por ejemplo `192.168.1.20`: escríbela en la app, o toca *Buscar
-   automáticamente*.
+2. Ábrelo e instálalo (Android pide permiso para instalar apps de fuera de Play Store). Si ya tenías una versión
+   anterior, se instala encima.
+3. En la app toca **Elegir canciones del celular** (MP3, M4A, WAV, FLAC, OGG, audios de WhatsApp o videos), o
+   desde WhatsApp / Archivos usa **Compartir → MoiMoi** en un audio. Elige 2, 4 o 6 pistas.
 
-En la app, **Compartir** abre el menú de Android con el `.zip` (WhatsApp, Drive, correo…) y **Guardar en el
-celular** lo deja en *Documentos/MoiMoi*. En YouTube, **Compartir → MoiMoi** abre la app con el link listo
-para separar. Las voces guía se pueden grabar desde el celular.
+La separación tarda unos minutos por canción y depende del celular (en la computadora de pruebas, con 4 núcleos,
+una canción de 4 minutos tarda cerca de 1 minuto; un celular suele ser entre 2 y 4 veces más lento). Puedes minimizar la app o apagar la pantalla: sigue separando y la notificación muestra el
+avance. Las canciones se separan de a una, en orden, y si Android cierra la app a mitad de camino, al volver a
+abrirla sigue sola. Después la escuchas con el mezclador (volumen, paneo, solo, mute, velocidad y tono en tiempo
+real) y en **Exportar** armas las pistas sueltas, la mezcla o el paquete `.zip` para Multitrack Alabanza:
+**Compartir** abre el menú de Android (WhatsApp, Drive, correo…) y **Guardar en el celular** lo deja en
+*Descargas/MoiMoi*.
 
-**Navegador del celular:** también funciona sin instalar nada. Escanea el código QR de *Ajustes → Celulares
-y tablets* (o escribe `https://192.168.1.20:4748`). La primera vez el navegador avisa que la conexión "no es
-privada": toca *Configuración avanzada → Continuar* (el certificado lo creó MoiMoi en tu computadora; hace
-falta HTTPS para el motor de audio). Desde el navegador no se pueden compartir archivos `.zip`: descárgalos y
-compártelos desde tus descargas, o usa la app.
+Todavía no están en la app del celular (sí en la computadora): links y búsqueda de YouTube, el análisis de tempo,
+acordes, tonalidad y partes, el click y la voz guía en el paquete, exportar con otra velocidad o tono, MP3, y la
+letra automática. Llegan en las próximas versiones.
 
-**Si el celular no se conecta:** los dos tienen que estar en la misma red WiFi; en Windows, la primera vez
-que abres MoiMoi aparece el aviso del Firewall: elige **Permitir** (redes privadas). En *Ajustes → Celulares y
-tablets* se puede desactivar el acceso desde otros equipos (por ejemplo en una red pública).
+**Usar la computadora desde la app (opcional):** en *Ajustes → Celular o computadora → Usar MoiMoi de la
+computadora* la app se conecta a MoiMoi en una computadora de la **misma red WiFi** (más rápido con tarjeta
+gráfica NVIDIA, y con todas las funciones). Abre MoiMoi en la computadora: en su ventana (y en *Ajustes →
+Celulares y tablets*) aparece la dirección, por ejemplo `192.168.1.20`; escríbela en la app o toca *Buscar
+automáticamente*. *Usar solo el celular* vuelve al modo sin computadora.
 
-Los celulares tienen menos memoria: una canción de 6 pistas usa unos 65 MB por minuto en el reproductor.
+**Navegador del celular:** también se puede usar MoiMoi de la computadora sin instalar nada. Escanea el código QR
+de *Ajustes → Celulares y tablets* (o escribe `https://192.168.1.20:4748`). La primera vez el navegador avisa que
+la conexión "no es privada": toca *Configuración avanzada → Continuar* (el certificado lo creó MoiMoi en tu
+computadora; hace falta HTTPS para el motor de audio). Desde el navegador no se pueden compartir archivos `.zip`:
+descárgalos y compártelos desde tus descargas, o usa la app.
+
+**Si el celular no se conecta a la computadora:** los dos tienen que estar en la misma red WiFi; en Windows, la
+primera vez que abres MoiMoi aparece el aviso del Firewall: elige **Permitir** (redes privadas). En *Ajustes →
+Celulares y tablets* se puede desactivar el acceso desde otros equipos (por ejemplo en una red pública).
+
+Los celulares tienen menos memoria: una canción de 6 pistas usa unos 65 MB por minuto en el reproductor, y la
+separación necesita alrededor de 1 GB libre mientras trabaja (conviene cerrar otras apps pesadas).
 
 ---
 
@@ -275,8 +288,12 @@ backend/            API (FastAPI), cola de trabajos, separación, análisis y ex
   tests/            pruebas (con canciones sintéticas y un motor de separación de prueba)
 frontend/           interfaz web (React + TypeScript + Vite)
   src/audio/        motor de audio multipista (Signalsmith Stretch en AudioWorklet)
-  android/          app de Android (Capacitor): la misma interfaz, conectada a la computadora
+  android/          app de Android (Capacitor): la misma interfaz, y el "servidor" de MoiMoi en Java
+    …/com/moimoi/engine  motor de separación (Demucs en ONNX Runtime: STFT, segmentos, suma ponderada)
+    …/com/moimoi/local   canciones, cola de trabajos, pistas, exportaciones y la API, dentro del celular
+    …/com/moimoi/app     Android: decodificar audio, servicio en segundo plano, elegir y compartir archivos
 scripts/            prueba de la interfaz en un navegador
+  android/          conversión de Demucs a ONNX y pruebas del motor y del "servidor" del celular
 .github/workflows/  compilación del APK en GitHub Actions
 ```
 
@@ -293,9 +310,24 @@ cd frontend && npm install && npm run dev
 NODE_PATH="$(npm root -g)" node scripts/prueba_navegador.cjs /tmp/demo.wav /tmp/voces.zip
 
 # App de Android (hace falta Android Studio o el SDK de Android y Java 21)
+# 1) El modelo de separación (Demucs htdemucs_6s → ONNX, pesos en 16 bits: ~58 MB). Lo hace GitHub Actions.
+pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install demucs onnx onnxruntime onnxscript
+python scripts/android/modelo_demucs.py modelo --fp16
+mkdir -p frontend/android/app/src/main/assets/models && cp modelo/htdemucs_6s.* frontend/android/app/src/main/assets/models/
+# 2) La app
 cd frontend && npm run build && npx cap sync android
 cd android && ./gradlew assembleDebug      # → app/build/outputs/apk/debug/app-debug.apk
+
+# Pruebas del motor y del "servidor" del celular en la computadora (Java 21):
+#   onnxruntime-1.30.0.jar y android-json (org.json de Android) están en Maven Central.
+python scripts/android/probar_motor.py modelo onnxruntime.jar          # el motor de la app = Demucs original
+javac -d clases -cp onnxruntime.jar:android-json.jar frontend/android/app/src/main/java/com/moimoi/{engine,local}/*.java scripts/android/PruebaLocal.java
+java -cp clases:onnxruntime.jar:android-json.jar PruebaLocal modelo    # separar, pistas, exportar, cancelar, retomar…
 ```
+
+`scripts/android/PuenteWeb.java` sirve la interfaz compilada con el "servidor" del celular detrás, para probar el
+modo celular en un navegador de la computadora (con un `androidBridge` falso que reenvía los pedidos de los
+plugins).
 
 La app de Android usa la clave de prueba `frontend/android/app/moimoi-debug.keystore` (no es secreta): así
 cada APK nuevo se instala encima del anterior. Para publicar en Play Store haría falta una clave propia.

@@ -21,7 +21,7 @@ function initials(title: string): string {
 }
 
 export function SongCard({ song, onChange }: { song: Song; onChange: () => void }) {
-  const { settings } = useApp()
+  const { settings, presets } = useApp()
   const toast = useToast()
   const processing = song.status in STATUS_TEXT
   const ready = song.status === 'ready'
@@ -61,7 +61,7 @@ export function SongCard({ song, onChange }: { song: Song; onChange: () => void 
                 <RotateCcw size={15} />{p[0]} pistas{song.preset === p ? ' (actual)' : ''}
               </button>
             ))}
-            {song.quality === 'normal' && (
+            {song.quality === 'normal' && (presets?.qualities.length ?? 2) > 1 && (
               <button disabled={processing} onClick={() => { close(); void reprocess(song.preset, 'alta') }}>
                 <RotateCcw size={15} />Misma separación en calidad alta
               </button>
