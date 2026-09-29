@@ -165,6 +165,99 @@ public class LocalPlugin extends Plugin {
         return name;
     }
 
+    // ---- voz guía ----------------------------------------------------------------------------------
+
+    /** Elegir el paquete de voces guía (.zip o audios sueltos) y cargarlo, sin pasar por la página. */
+    @PluginMethod
+    public void pickGuide(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"application/zip", "application/x-zip-compressed",
+                "application/x-zip", "audio/*", "application/ogg", "application/octet-stream"});
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        startActivityForResult(call, intent, "pickGuideResult");
+    }
+
+    @ActivityCallback
+    private void pickGuideResult(PluginCall call, ActivityResult result) {
+        if (call == null) {
+            return;
+        }
+        List<Uri> uris = new ArrayList<>();
+        Intent data = result.getData();
+        if (result.getResultCode() == Activity.RESULT_OK && data != null) {
+            ClipData clip = data.getClipData();
+            if (clip != null) {
+                for (int i = 0; i < clip.getItemCount(); i++) {
+                    uris.add(clip.getItemAt(i).getUri());
+                }
+            } else if (data.getData() != null) {
+                uris.add(data.getData());
+            }
+        }
+        if (uris.isEmpty()) {
+            JSObject out = new JSObject();
+            out.put("cancelled", true);
+            call.resolve(out);
+            return;
+        }
+        String set = call.getString("set");
+        executor.execute(() -> {
+            File dir = new File(getContext().getCacheDir(), "voz-guia-elegidas");
+            deleteTree(dir);
+            dir.mkdirs();
+            try {
+                List<com.moimoi.local.Guide.Upload> uploads = new ArrayList<>();
+                ContentResolver resolver = getContext().getContentResolver();
+                for (int i = 0; i < uris.size(); i++) {
+                    Uri uri = uris.get(i);
+                    String name = displayName(uri);
+                    if (name == null) {
+                        name = "voz-" + i;
+                    }
+                    File target = new File(dir, String.format(java.util.Locale.US, "%04d", i));
+                    try (InputStream in = resolver.openInputStream(uri); OutputStream out = new FileOutputStream(target)) {
+                        if (in == null) {
+                            throw new IOException("No se pudo abrir " + name);
+                        }
+                        byte[] buffer = new byte[1 << 16];
+                        long total = 0;
+                        int n;
+                        while ((n = in.read(buffer)) > 0) {
+                            total += n;
+                            if (total > 500L * 1024 * 1024) {
+                                throw new IOException("Demasiado grande (máximo 500 MB)");
+                            }
+                            out.write(buffer, 0, n);
+                        }
+                    }
+                    uploads.add(new com.moimoi.local.Guide.Upload(name, target));
+                }
+                JSONObject kit = backend().importGuide(uploads, null, set);
+                JSObject out = new JSObject();
+                out.put("kit", kit.toString());
+                call.resolve(out);
+            } catch (ApiException e) {
+                call.reject(e.getMessage());
+            } catch (Exception e) {
+                call.reject(e.getMessage() == null ? "No se pudieron cargar las voces" : e.getMessage());
+            } finally {
+                deleteTree(dir);
+            }
+        });
+    }
+
+    private static void deleteTree(File f) {
+        File[] children = f.listFiles();
+        if (children != null) {
+            for (File c : children) {
+                deleteTree(c);
+            }
+        }
+        f.delete();
+    }
+
     /** Audios compartidos con MoiMoi (o abiertos con "Abrir con MoiMoi"). */
     @Override
     protected void handleOnNewIntent(Intent intent) {

@@ -167,6 +167,41 @@ public final class Json {
         return out.toString();
     }
 
+    /** Base64 a bytes (ignora espacios y saltos de línea; acepta el prefijo "data:...;base64,"). */
+    public static byte[] unbase64(String text) {
+        String t = text == null ? "" : text;
+        int comma = t.startsWith("data:") ? t.indexOf(',') : -1;
+        if (comma >= 0) {
+            t = t.substring(comma + 1);
+        }
+        int[] value = new int[128];
+        java.util.Arrays.fill(value, -1);
+        for (int i = 0; i < B64.length; i++) {
+            value[B64[i]] = i;
+        }
+        value['-'] = 62; // variante para URLs
+        value['_'] = 63;
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(t.length() * 3 / 4);
+        int acc = 0, bits = 0;
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            if (c == '=') {
+                break;
+            }
+            int v = c < 128 ? value[c] : -1;
+            if (v < 0) {
+                continue; // espacios, saltos de línea
+            }
+            acc = (acc << 6) | v;
+            bits += 6;
+            if (bits >= 8) {
+                bits -= 8;
+                out.write((acc >> bits) & 0xFF);
+            }
+        }
+        return out.toByteArray();
+    }
+
     /** Redondeo a `digits` decimales (como round() de Python para mostrar). */
     public static double round(double value, int digits) {
         double scale = Math.pow(10, digits);

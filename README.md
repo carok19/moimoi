@@ -132,8 +132,13 @@ compás, tonalidad y cambios de tonalidad, acordes (con inversiones), partes (in
 instrumentos. Con eso el reproductor muestra los acordes y las partes, el metrónomo sigue el pulso y el paquete
 para Multitrack puede llevar el click y la cuenta inicial.
 
-Todavía no están en la app del celular (sí en la computadora): links y búsqueda de YouTube, la voz guía en el
-paquete, exportar con otra velocidad o tono, MP3, y la letra automática. Llegan en las próximas versiones.
+La **voz guía** también funciona en el celular: en *Ajustes → Voz guía y click* toca **Cargar paquete** y elige
+el .zip de tu paquete de voces (o los audios sueltos); la app reconoce cada voz por el nombre del archivo ("Coro",
+"Verso 1", "1, 2, 3, 4"…, en varios idiomas) y los sonidos de click del paquete. También puedes grabar tus propias
+voces con el micrófono. Al exportar el paquete para Multitrack, marca **Guía**.
+
+Todavía no están en la app del celular (sí en la computadora): links y búsqueda de YouTube, exportar con otra
+velocidad o tono, MP3, y la letra automática. Llegan en las próximas versiones.
 
 **Usar la computadora desde la app (opcional):** en *Ajustes → Celular o computadora → Usar MoiMoi de la
 computadora* la app se conecta a MoiMoi en una computadora de la **misma red WiFi** (más rápido con tarjeta

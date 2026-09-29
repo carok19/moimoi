@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Loader2, Mic, Play, Square, Trash2, Upload } from 'lucide-react'
 import { api } from '../api/client'
-import { apiUrl } from '../api/base'
-import type { ClickStyle, CueGroup, GuideImportSummary, GuideKit, GuideNumbering } from '../api/types'
+import { apiUrl, isStandalone } from '../api/base'
+import type { ClickStyle, CueGroup, GuideImportSummary, GuideKit, GuideNumbering, GuideUploadResult } from '../api/types'
 import { useApp } from '../context'
 import { confirmDialog } from './Modal'
 import { useToast } from './Toasts'
@@ -101,18 +101,35 @@ export function GuideVoices() {
 
   const save = (patch: Parameters<typeof saveSettings>[0]) => saveSettings(patch).catch((err) => toast.error(err))
 
+  const showImported = (result: GuideUploadResult) => {
+    setSummary(result.summary)
+    setKit(result)
+    setShown(result.set)
+    const { added, clicks } = result.summary
+    toast.show(added || clicks ? `Listo: ${added} voces${clicks ? ` y ${clicks} sonidos de click` : ''}` : 'No se encontraron voces en esos archivos',
+      added || clicks ? 'ok' : 'err')
+  }
+
+  /** En el celular: el selector de archivos de Android (el paquete no pasa por la página). */
+  const pickPackage = async () => {
+    setUpload(1)
+    setSummary(null)
+    try {
+      const result = await api.pickGuideFiles(null)
+      if (result) showImported(result)
+    } catch (err) {
+      toast.error(err)
+    } finally {
+      setUpload(null)
+    }
+  }
+
   const importFiles = async (files: FileList | null) => {
     if (!files?.length) return
     setUpload(0)
     setSummary(null)
     try {
-      const result = await api.uploadGuide(Array.from(files), { set: null }, setUpload)
-      setSummary(result.summary)
-      setKit(result)
-      setShown(result.set)
-      const { added, clicks } = result.summary
-      toast.show(added || clicks ? `Listo: ${added} voces${clicks ? ` y ${clicks} sonidos de click` : ''}` : 'No se encontraron voces en esos archivos',
-        added || clicks ? 'ok' : 'err')
+      showImported(await api.uploadGuide(Array.from(files), { set: null }, setUpload))
     } catch (err) {
       toast.error(err)
     } finally {
@@ -201,7 +218,8 @@ export function GuideVoices() {
       <div className="row wrap">
         <input ref={input} type="file" multiple hidden accept=".zip,audio/*,.wav,.mp3,.m4a,.aif,.aiff,.flac,.ogg"
           onChange={(e) => void importFiles(e.target.files)} />
-        <button className="btn primary" disabled={upload !== null} onClick={() => input.current?.click()}>
+        <button className="btn primary" disabled={upload !== null}
+          onClick={() => (isStandalone() ? void pickPackage() : input.current?.click())}>
           {upload !== null ? <Loader2 size={16} className="spin" /> : <Upload size={16} />}
           {upload !== null ? (upload < 1 ? `Subiendo… ${Math.round(upload * 100)}%` : 'Reconociendo las voces…') : 'Cargar paquete (.zip o audios)'}
         </button>

@@ -1,5 +1,5 @@
 import { apiUrl, isNativeApp, isStandalone } from './base'
-import { Local, pickAudio, type ImportResult } from './local'
+import { Local, pickAudio, pickGuide, type ImportResult } from './local'
 import type {
   Analysis, ExportRequest, GuideKit, GuideUploadResult, Health, Job, Lyrics, LyricsLine, MultitrackStatus,
   NetworkInfo, Peaks, PresetId, Presets, Quality, SearchResult, SendResult, Settings, Song, SongSettings, UrlInfo,
@@ -112,8 +112,15 @@ export const api = {
   deleteGuideSet: (set: string) => request<GuideKit>(`/api/guia?set=${encodeURIComponent(set)}`, { method: 'DELETE' }),
   deleteClickStyle: (style: string) => request<GuideKit>(`/api/guia/clicks/${encodeURIComponent(style)}`, { method: 'DELETE' }),
   /** Sube voces guía (un .zip con el paquete, audios sueltos o una grabación) con progreso. */
-  uploadGuide(files: File[], options: { cue?: string; set?: string | null } = {},
+  async uploadGuide(files: File[], options: { cue?: string; set?: string | null } = {},
     onProgress?: (fraction: number) => void): Promise<GuideUploadResult> {
+    if (isStandalone()) {
+      // En el celular llegan como JSON (grabaciones de pocos segundos); los paquetes grandes se
+      // eligen con pickGuideFiles.
+      const encoded = await Promise.all(files.map(async (file) => ({ name: file.name, data: await toBase64(file) })))
+      onProgress?.(1)
+      return request<GuideUploadResult>('/api/guia', json('POST', { files: encoded, cue: options.cue ?? null, set: options.set ?? null }))
+    }
     const form = new FormData()
     for (const file of files) form.append('files', file)
     if (options.cue) form.append('cue', options.cue)
@@ -128,6 +135,8 @@ export const api = {
 
   /** Modo celular: elegir canciones del celular (la app las copia y las pone en cola). */
   pickFiles: (preset: PresetId): Promise<ImportResult> => pickAudio(preset),
+  /** Modo celular: elegir el paquete de voces guía con el selector de Android (null = no eligió nada). */
+  pickGuideFiles: (set?: string | null): Promise<GuideUploadResult | null> => pickGuide(set),
 
   /** Sube un archivo con progreso (fetch no informa el avance de la subida). */
   upload(file: File, preset: PresetId, quality: Quality, onProgress?: (fraction: number) => void): Promise<Song> {
@@ -137,6 +146,19 @@ export const api = {
     form.append('quality', quality)
     return sendForm<Song>('/api/songs/upload', form, onProgress, 'No se pudo subir el archivo')
   },
+}
+
+/** Contenido de un archivo en base64 (sin el prefijo "data:…;base64,"). */
+function toBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = String(reader.result ?? '')
+      resolve(text.slice(text.indexOf(',') + 1))
+    }
+    reader.onerror = () => reject(new ApiError('No se pudo leer el archivo', 0))
+    reader.readAsDataURL(file)
+  })
 }
 
 function sendForm<T>(path: string, form: FormData, onProgress: ((fraction: number) => void) | undefined,

@@ -348,6 +348,89 @@ public class PruebaLocal {
         } else {
             check(job.getString("status").equals("error") && job.getString("error").contains("pulso"), "click sin pulso: " + job);
         }
+        // ---- voz guía: un paquete .zip (español, números, sonidos de click y cosas que no son voces)
+        File packDir = new File(root, "paquete");
+        packDir.mkdirs();
+        File pack = new File(packDir, "Voces Guia Spanish.zip");
+        try (java.util.zip.ZipOutputStream zout = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(pack))) {
+            String[] entriesInPack = {"Guias/Spanish - Intro.wav", "Guias/Spanish - Verso 1.wav", "Guias/Spanish - Coro.wav",
+                    "Guias/Spanish - Puente.wav", "Guias/Spanish - Final.wav", "Numeros/1.wav", "Numeros/2.wav", "Numeros/3.wav",
+                    "Numeros/4.wav", "Click/New Click - Classic-accents.wav", "Click/New Click - Classic-quarters.wav",
+                    "__MACOSX/._Coro.wav", "leeme.txt", "Guias/Silencio.wav"};
+            for (String entry : entriesInPack) {
+                zout.putNextEntry(new ZipEntry(entry));
+                if (entry.endsWith(".txt")) {
+                    zout.write("hola".getBytes("UTF-8"));
+                } else if (entry.contains("Silencio")) {
+                    zout.write(silentWav(0.5));
+                } else {
+                    zout.write(testWav(entry.contains("Click") ? 0.05 : 0.7, 44100, 1, entry.hashCode()));
+                }
+                zout.closeEntry();
+            }
+        }
+        JSONObject kit = b.importGuide(java.util.Arrays.asList(new com.moimoi.local.Guide.Upload(pack.getName(), pack)), null, null);
+        JSONObject summary = kit.getJSONObject("summary");
+        System.out.println("voz guía: " + summary);
+        check(summary.getInt("added") == 9 && summary.getInt("recognized") == 9 && summary.getInt("clicks") == 1,
+                "paquete de voces: 9 voces reconocidas y 1 sonido de click: " + summary);
+        check(summary.getJSONArray("sets").length() == 1 && summary.getJSONArray("sets").getString(0).equals("es"), "idioma español");
+        check(summary.getJSONArray("skipped").length() == 1, "el audio sin sonido se ignora");
+        check(kit.getString("active").equals("es") && kit.getInt("count") == 9, "voces en uso: " + kit.getInt("count"));
+        check(kit.getJSONArray("clicks").length() == 1 && kit.getJSONArray("clicks").getJSONObject(0).getString("name").equals("Classic")
+                && kit.getJSONArray("clicks").getJSONObject(0).getJSONObject("sounds").length() == 2, "sonidos de click: " + kit.getJSONArray("clicks"));
+        JSONObject listed = call(b, "GET", "/api/guia", null, 200);
+        check(listed.getJSONArray("files").length() == 9 && listed.getJSONArray("missing").length() > 0, "lista de voces");
+        String someFile = listed.getJSONArray("files").getJSONObject(0).getString("id");
+        String url = listed.getJSONArray("files").getJSONObject(0).getString("url");
+        check(url.startsWith("/_capacitor_file_/") && new File(url.substring("/_capacitor_file_".length())).isFile(), "audio de la voz: " + url);
+        // Reasignar, grabar una voz (llega en base64) y borrar.
+        JSONObject reassigned = call(b, "PUT", "/api/guia/" + someFile, "{\"cue\":\"tag\"}", 200);
+        boolean tagged = false;
+        for (int i = 0; i < reassigned.getJSONArray("cues").length(); i++) {
+            JSONObject c = reassigned.getJSONArray("cues").getJSONObject(i);
+            tagged |= c.getString("id").equals("tag") && someFile.equals(c.optString("file"));
+        }
+        check(tagged, "reasignar una voz");
+        call(b, "PUT", "/api/guia/" + someFile, "{\"cue\":\"nada\"}", 400);
+        call(b, "PUT", "/api/guia/zzzzzzzzzzzz", "{\"cue\":\"coro\"}", 404);
+        byte[] recorded = testWav(0.8, 48000, 1, 7);
+        JSONObject rec = call(b, "POST", "/api/guia", new JSONObject().put("files", new JSONArray().put(new JSONObject()
+                .put("name", "grabacion-precoro.wav").put("data", com.moimoi.local.Json.base64(recorded, recorded.length))))
+                .put("cue", "precoro").put("set", "es").toString(), 200);
+        check(rec.getJSONObject("summary").getInt("added") == 1 && rec.getInt("count") == 10, "grabación en la app: " + rec.getJSONObject("summary"));
+        call(b, "PUT", "/api/guia/activo", "{\"set\":\"xx\"}", 404);
+        check(call(b, "PUT", "/api/guia/activo", "{\"set\":\"es\"}", 200).getString("active").equals("es"), "elegir idioma");
+
+        // Paquete para Multitrack con la Guía (y el click del paquete si hay pulso).
+        String guideRequest = hasBeats
+                ? "{\"type\":\"multitrack\",\"guide\":true,\"click\":true,\"clickSound\":\"classic\",\"preRollBars\":1}"
+                : "{\"type\":\"multitrack\",\"guide\":true}";
+        job = waitJob(b, call(b, "POST", "/api/songs/" + six.getString("id") + "/exports", guideRequest, 200).getString("id"), 60);
+        check(job.getString("status").equals("done"), "paquete con voz guía: " + job);
+        Map<String, byte[]> withGuide = unzip(b.resolveDownload(job.getString("downloadUrl"), null).file);
+        check(withGuide.containsKey("Guia.wav"), "Guia.wav en el paquete " + withGuide.keySet());
+        JSONObject guideManifest = new JSONObject(new String(withGuide.get("moimoi.json"), "UTF-8"));
+        System.out.println("guía en moimoi.json: " + guideManifest.getJSONArray("guia"));
+        if (hasBeats) {
+            check(guideManifest.getJSONArray("guia").length() >= 4
+                    && guideManifest.getJSONArray("guia").getJSONObject(0).getString("voz").equals("n1"), "la Guía cuenta 1, 2, 3, 4");
+            float[][] guideTrack = readWav(withGuide.get("Guia.wav"));
+            float[][] clickTrack = readWav(withGuide.get("Click.wav"));
+            double guidePeak = 0;
+            for (float v : guideTrack[0]) {
+                guidePeak = Math.max(guidePeak, Math.abs(v));
+            }
+            check(guidePeak > 0.3 && guideTrack[0].length == clickTrack[0].length, "la Guía suena y dura lo mismo que el click");
+        }
+        call(b, "DELETE", "/api/guia/clicks/classic", null, 200);
+        check(call(b, "GET", "/api/guia", null, 200).getJSONArray("clicks").length() == 0, "borrar el sonido de click");
+        check(call(b, "DELETE", "/api/guia/" + someFile, null, 200).getJSONArray("files").length() == 9, "borrar una voz");
+        check(call(b, "DELETE", "/api/guia?set=es", null, 200).getJSONArray("sets").length() == 0, "borrar el idioma");
+        job = waitJob(b, call(b, "POST", "/api/songs/" + six.getString("id") + "/exports",
+                "{\"type\":\"multitrack\",\"guide\":true}", 200).getString("id"), 30);
+        check(job.getString("status").equals("error") && job.getString("error").contains("voces"), "guía sin voces: " + job);
+
         job = waitJob(b, call(b, "POST", "/api/songs/" + six.getString("id") + "/exports",
                 "{\"type\":\"multitrack\",\"tempo\":0.8}", 200).getString("id"), 30);
         check(job.getString("status").equals("error"), "velocidad al exportar todavía no");
@@ -418,6 +501,25 @@ public class PruebaLocal {
         System.out.printf("OK: %d comprobaciones en %.1f s%n", checks, (System.currentTimeMillis() - t0) / 1000.0);
         deleteTree(root);
         System.exit(0);
+    }
+
+    static byte[] silentWav(double seconds) throws IOException {
+        int n = (int) (seconds * 44100);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        Wav.Writer w = new Wav.Writer(out, 1, 44100, n);
+        w.write(new float[n], null, n);
+        w.close();
+        return out.toByteArray();
+    }
+
+    static float[][] readWav(byte[] bytes) throws IOException {
+        File tmp = File.createTempFile("moimoi", ".wav");
+        try {
+            Files.write(tmp.toPath(), bytes);
+            return readStem(tmp);
+        } finally {
+            tmp.delete();
+        }
     }
 
     static Map<String, byte[]> unzip(File file) throws IOException {

@@ -23,7 +23,7 @@ import org.json.JSONObject;
 
 /**
  * Exportaciones en el celular (como exports.py): pistas sueltas en .zip, paquete para Multitrack
- * Alabanza (.zip con moimoi.json, click y cuenta inicial) y la mezcla actual en WAV.
+ * Alabanza (.zip con moimoi.json, click, voz guía y cuenta inicial) y la mezcla actual en WAV.
  */
 public final class Exporter {
 
@@ -243,11 +243,41 @@ public final class Exporter {
         return out;
     }
 
+    /**
+     * {acento, pulso} con los sonidos de click de un paquete (exports.click_sounds), o null si no hay
+     * ninguno (se usan los de MoiMoi).
+     */
+    static float[][] clickSounds(Map<String, float[]> samples) {
+        Map<String, float[]> ok = new LinkedHashMap<>();
+        if (samples != null) {
+            for (Map.Entry<String, float[]> e : samples.entrySet()) {
+                if (e.getValue() != null && e.getValue().length > 0) {
+                    ok.put(e.getKey(), e.getValue());
+                }
+            }
+        }
+        if (ok.isEmpty()) {
+            return null;
+        }
+        float[] beat = null;
+        for (String role : new String[] {"beat", "eighth", "sixteenth", "accent"}) {
+            if (beat == null && ok.containsKey(role)) {
+                beat = ok.get(role);
+            }
+        }
+        float[] accent = ok.containsKey("accent") ? ok.get("accent") : beat;
+        return new float[][] {accent, beat};
+    }
+
     /** Pista de click (mono) sobre los pulsos, con acento en el "1" y la cuenta inicial. */
     static float[] clickTrack(Grid grid, int length, Timeline timeline) {
+        return clickTrack(grid, length, timeline, null);
+    }
+
+    static float[] clickTrack(Grid grid, int length, Timeline timeline, float[][] sounds) {
         float[] out = new float[length];
-        float[] accent = clickSound(true);
-        float[] normal = clickSound(false);
+        float[] accent = sounds != null ? sounds[0] : clickSound(true);
+        float[] normal = sounds != null ? sounds[1] : clickSound(false);
         List<double[]> events = new ArrayList<>();
         for (int i = 0; i < timeline.countTimes.length; i++) {
             events.add(new double[] {timeline.countTimes[i], i % timeline.beatsPerBar == 0 ? 1 : 0});
@@ -279,6 +309,42 @@ public final class Exporter {
         }
         JSONArray detected = analysis.optJSONArray("sections");
         return detected == null ? new JSONArray() : detected;
+    }
+
+    /** {número de parte: "sube" | "baja"} donde la canción cambia de tonalidad (mismo modo). */
+    static Map<Integer, String> keyChangeExtras(JSONObject analysis, JSONArray sections) {
+        Map<Integer, String> extras = new java.util.HashMap<>();
+        JSONObject previous = analysis.optJSONObject("keyStart");
+        if (previous == null) {
+            previous = analysis.optJSONObject("key");
+        }
+        double[] starts = new double[sections.length()];
+        for (int i = 0; i < starts.length; i++) {
+            JSONObject s = sections.optJSONObject(i);
+            starts[i] = s == null ? 0 : s.optDouble("start", 0);
+        }
+        JSONArray changes = analysis.optJSONArray("keyChanges");
+        for (int c = 0; changes != null && c < changes.length(); c++) {
+            JSONObject change = changes.optJSONObject(c);
+            if (change == null) {
+                continue;
+            }
+            if (previous != null && change.optString("mode").equals(previous.optString("mode")) && starts.length > 0) {
+                int diff = Math.floorMod(change.optInt("tonic") - previous.optInt("tonic"), 12);
+                double time = change.optDouble("time", 0);
+                int index = 0;
+                for (int i = 1; i < starts.length; i++) {
+                    if (Math.abs(starts[i] - time) < Math.abs(starts[index] - time)) {
+                        index = i;
+                    }
+                }
+                if (diff != 0 && index > 0 && Math.abs(starts[index] - time) <= 1.0) {
+                    extras.put(index, diff <= 6 ? "sube" : "baja");
+                }
+            }
+            previous = change;
+        }
+        return extras;
     }
 
     private static final Map<String, String> PALETTE = new LinkedHashMap<>();
@@ -322,6 +388,11 @@ public final class Exporter {
 
     public static JSONObject run(JSONObject song, Store.SongFiles paths, JSONObject params, File outDir,
                                  Jobs.Reporter progress, String appVersion) throws Exception {
+        return run(song, paths, params, outDir, progress, appVersion, null);
+    }
+
+    public static JSONObject run(JSONObject song, Store.SongFiles paths, JSONObject params, File outDir,
+                                 Jobs.Reporter progress, String appVersion, Guide kit) throws Exception {
         String kind = params.optString("type", "multitrack");
         List<String> available = new ArrayList<>();
         JSONArray have = song.optJSONArray("stems");
@@ -393,8 +464,19 @@ public final class Exporter {
         if ((wantClick || preRollBars > 0) && grid.beats.length == 0) {
             throw new ExportError("No se detectó el pulso de esta canción: no se puede generar el click ni la cuenta");
         }
+        Map<String, float[]> cues = new LinkedHashMap<>();
         if (wantGuide) {
-            throw new ExportError("La voz guía en el celular llega en la próxima versión: desmarca \"Guía\".");
+            if (kit != null) {
+                cues = kit.loadCues();
+            }
+            if (cues.isEmpty()) {
+                throw new ExportError("Primero carga las voces guía en Ajustes → Voz guía");
+            }
+        }
+        float[][] sounds = null;
+        String style = params.isNull("clickSound") ? "" : params.optString("clickSound", "");
+        if (wantClick && !style.isEmpty() && !style.equals("moimoi") && kit != null) {
+            sounds = clickSounds(kit.clickSounds(style)); // si se borró ese sonido, el de MoiMoi
         }
         Timeline timeline = planTimeline(grid, tempo, preRollBars);
         JSONArray sections = songSections(analysis, song);
@@ -405,7 +487,8 @@ public final class Exporter {
 
         String zipName = baseName + ".zip";
         File target = new File(outDir, "paquete.zip");
-        int steps = wanted.size() + (wantClick ? 1 : 0) + 1;
+        int steps = wanted.size() + (wantClick ? 1 : 0) + (wantGuide ? 1 : 0) + 1;
+        List<Guide.Placement> placements = new ArrayList<>();
         int step = 0;
         JSONArray tracks = new JSONArray();
         try (ZipOutputStream zip = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(target), 1 << 16))) {
@@ -413,13 +496,30 @@ public final class Exporter {
             zip.setLevel(Deflater.BEST_SPEED);
             if (wantClick) {
                 progress.report(step / (double) steps, "Generando click…");
-                float[] click = clickTrack(grid, length, timeline);
+                float[] click = clickTrack(grid, length, timeline, sounds);
                 zip.putNextEntry(new ZipEntry("Click.wav"));
                 Wav.Writer w = new Wav.Writer(zip, 2, SR, length);
                 w.write(click, click, click.length);
                 w.close();
                 zip.closeEntry();
                 tracks.put(track("Click.wav", "Click", "click", 70));
+                step++;
+            }
+            if (wantGuide) {
+                progress.report(step / (double) steps, "Armando la voz guía…");
+                Map<Integer, String> extras = params.optBoolean("guideKeyChanges", true)
+                        ? keyChangeExtras(analysis, sections) : new java.util.HashMap<Integer, String>();
+                String numbering = params.isNull("guideNumbering") ? "" : params.optString("guideNumbering", "");
+                final Timeline tl = timeline;
+                placements = Guide.plan(sections, grid.beats, grid.beatsPerBar, cues.keySet(), tl::out, tl.countTimes,
+                        numbering.isEmpty() ? "verses" : numbering, extras, null);
+                float[] guide = Guide.render(placements, cues, length);
+                zip.putNextEntry(new ZipEntry("Guia.wav"));
+                Wav.Writer w = new Wav.Writer(zip, 2, SR, length);
+                w.write(guide, guide, guide.length);
+                w.close();
+                zip.closeEntry();
+                tracks.put(track("Guia.wav", "Guía", "guia", 80));
                 step++;
             }
             byte[] buffer = new byte[1 << 16];
@@ -450,7 +550,8 @@ public final class Exporter {
                 tracks.put(track(fileBase + ".wav", label, name, 80));
                 step++;
             }
-            JSONObject manifest = manifest(song, analysis, grid, sections, tracks, timeline, semitones, lengthS, appVersion);
+            JSONObject manifest = manifest(song, analysis, grid, sections, tracks, timeline, semitones, lengthS, appVersion,
+                    placements);
             zip.putNextEntry(new ZipEntry("moimoi.json"));
             zip.write(manifest.toString(2).getBytes(Json.UTF8));
             zip.closeEntry();
@@ -586,7 +687,8 @@ public final class Exporter {
     }
 
     static JSONObject manifest(JSONObject song, JSONObject analysis, Grid grid, JSONArray sections, JSONArray tracks,
-                               Timeline timeline, int semitones, double lengthS, String appVersion) throws JSONException {
+                               Timeline timeline, int semitones, double lengthS, String appVersion,
+                               List<Guide.Placement> placements) throws JSONException {
         JSONObject key = analysis.optJSONObject("key");
         JSONObject cancion = new JSONObject();
         cancion.put("titulo", song.opt("title"));
@@ -625,7 +727,11 @@ public final class Exporter {
         out.put("pistas", tracks);
         out.put("marcadores", sectionMarkers(sections, timeline));
         out.put("acordes", chords);
-        out.put("guia", new JSONArray());
+        JSONArray guia = new JSONArray();
+        for (Guide.Placement p : placements == null ? new ArrayList<Guide.Placement>() : placements) {
+            guia.put(new JSONObject().put("voz", p.cue).put("parte", p.label).put("tiempoMs", Math.round(p.time * 1000)));
+        }
+        out.put("guia", guia);
         out.put("origen", origen);
         return out;
     }

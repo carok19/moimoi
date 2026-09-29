@@ -32,6 +32,7 @@ public final class LocalBackend implements Jobs.Handler {
     final Store store;
     final Jobs jobs;
     final LocalApi api;
+    final Guide guide;
     private final Processor processor;
 
     public static synchronized LocalBackend get(Platform platform) {
@@ -58,6 +59,7 @@ public final class LocalBackend implements Jobs.Handler {
         this.platform = platform;
         this.store = new Store(platform.dataDir());
         this.jobs = new Jobs(this, platform);
+        this.guide = new Guide(new File(platform.dataDir(), "voz-guia"), platform);
         this.api = new LocalApi(this);
         this.processor = new Processor(store, platform);
     }
@@ -102,6 +104,23 @@ public final class LocalBackend implements Jobs.Handler {
             return true;
         } catch (ApiException e) {
             return false;
+        }
+    }
+
+    /**
+     * Carga voces guía (audios sueltos, un .zip con el paquete completo o una grabación hecha en la
+     * app: cue = a qué parte corresponde). Devuelve el paquete con el resumen ("summary").
+     */
+    public JSONObject importGuide(java.util.List<Guide.Upload> uploads, String cue, String set) throws ApiException {
+        try {
+            JSONObject summary = guide.importFiles(uploads, cue, set, new File(platform.cacheDir(), "voz-guia-importar"));
+            JSONObject out = guide.describe(set);
+            out.put("summary", summary);
+            return out;
+        } catch (Guide.GuideException e) {
+            throw new ApiException(e.status, e.getMessage());
+        } catch (IOException | JSONException e) {
+            throw new ApiException(500, "No se pudieron cargar las voces: " + e.getMessage());
         }
     }
 
@@ -360,7 +379,7 @@ public final class LocalBackend implements Jobs.Handler {
             }
             JSONObject params = job.optJSONObject("params");
             return Exporter.run(song, store.files(songId), params == null ? new JSONObject() : params, outDir, report,
-                    platform.version());
+                    platform.version(), guide);
         }
         throw new IllegalStateException("Trabajo desconocido: " + kind);
     }

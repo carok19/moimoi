@@ -3,7 +3,7 @@
 // al programa de la computadora (ver client.ts), a través de este plugin.
 
 import { registerPlugin, type PluginListenerHandle } from '@capacitor/core'
-import type { Song } from './types'
+import type { GuideUploadResult, Song } from './types'
 
 export interface ImportError {
   name: string
@@ -21,6 +21,7 @@ interface MoiMoiLocalPlugin {
   shareFile(options: { url: string; name: string }): Promise<{ outcome: string }>
   saveFile(options: { url: string; name: string }): Promise<{ where?: string | null }>
   requestNotifications(): Promise<{ granted: boolean }>
+  pickGuide(options: { set?: string | null }): Promise<{ kit?: string; cancelled?: boolean }>
   addListener(event: 'imported', listener: (data: RawImport) => void): Promise<PluginListenerHandle>
 }
 
@@ -42,6 +43,16 @@ function parseImport(raw: RawImport): ImportResult {
 /** Abre el selector de archivos del celular y agrega las canciones elegidas. */
 export async function pickAudio(preset?: string): Promise<ImportResult> {
   return parseImport(await Local.pickAudio({ preset }))
+}
+
+/**
+ * Voz guía en el celular: elegir el paquete (.zip o audios) con el selector de Android; la app lo
+ * carga directo (sin pasar los archivos por la página). null si no se eligió nada.
+ */
+export async function pickGuide(set?: string | null): Promise<GuideUploadResult | null> {
+  const result = await Local.pickGuide({ set: set ?? null })
+  if (result.cancelled || !result.kit) return null
+  return JSON.parse(result.kit) as GuideUploadResult
 }
 
 let notificationsAsked = false

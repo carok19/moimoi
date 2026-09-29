@@ -201,10 +201,7 @@ public final class LocalApi {
             throw new ApiException(501, SOON_LINKS);
         }
         if (first.equals("guia")) {
-            if (n == 1 && get) {
-                return emptyGuideKit();
-            }
-            throw new ApiException(501, "La voz guía en el celular llega en la próxima versión.");
+            return guideRoute(method, parts, params, body);
         }
         if (first.equals("multitrack") && n == 1 && get) {
             String target = params.containsKey("url") ? params.get("url") : settings().optString("multitrackUrl");
@@ -217,6 +214,99 @@ public final class LocalApi {
                     .put("local", true);
         }
         throw new ApiException(404, "No encontrado");
+    }
+
+    // ---- voz guía -------------------------------------------------------------------------------
+
+    private Object guideRoute(String method, List<String> parts, Map<String, String> params, String body) throws Exception {
+        Guide kit = backend.guide;
+        int n = parts.size();
+        String set = params.get("set");
+        if (set != null && set.isEmpty()) {
+            set = null;
+        }
+        try {
+            if (n == 1) {
+                if (method.equals("GET")) {
+                    return kit.describe(set);
+                }
+                if (method.equals("DELETE")) {
+                    // Borra un idioma (?set=es) o todo el paquete de voces.
+                    if (set != null) {
+                        kit.removeSet(set);
+                    } else {
+                        kit.clear();
+                    }
+                    return kit.describe(null);
+                }
+                if (method.equals("POST")) {
+                    return importGuideJson(bodyObject(body));
+                }
+            }
+            if (n == 2 && parts.get(1).equals("activo") && method.equals("PUT")) {
+                kit.setActive(bodyObject(body).optString("set", null));
+                return kit.describe(null);
+            }
+            if (n == 3 && parts.get(1).equals("clicks") && method.equals("DELETE")) {
+                kit.removeClicks(parts.get(2));
+                return kit.describe(null);
+            }
+            if (n == 2 && method.equals("PUT")) {
+                JSONObject b = bodyObject(body);
+                String cue = b.isNull("cue") || b.optString("cue", "").isEmpty() ? null : b.optString("cue");
+                kit.assign(parts.get(1), cue);
+                return kit.describe(set);
+            }
+            if (n == 2 && method.equals("DELETE")) {
+                kit.remove(parts.get(1));
+                return kit.describe(set);
+            }
+        } catch (Guide.GuideException e) {
+            throw new ApiException(e.status, e.getMessage());
+        }
+        throw new ApiException(404, "No encontrado");
+    }
+
+    /**
+     * Voces enviadas por la interfaz como JSON (una grabación de pocos segundos):
+     * {"files": [{"name", "data" (base64)}], "cue", "set"}. Los paquetes grandes se eligen con el
+     * selector de archivos del celular (MoiMoiLocal.pickGuide), sin pasar por acá.
+     */
+    private JSONObject importGuideJson(JSONObject request) throws Exception {
+        JSONArray files = request.optJSONArray("files");
+        if (files == null || files.length() == 0) {
+            throw new ApiException(400, "No llegó ningún archivo");
+        }
+        File dir = new File(platform.cacheDir(), "voz-guia-subida-" + Json.newId());
+        if (!dir.mkdirs()) {
+            throw new IOException("No se pudo crear la carpeta temporal");
+        }
+        try {
+            List<Guide.Upload> uploads = new ArrayList<>();
+            long total = 0;
+            for (int i = 0; i < files.length() && i < Guide.MAX_FILES; i++) {
+                JSONObject f = files.optJSONObject(i);
+                if (f == null) {
+                    continue;
+                }
+                String name = Guide.fileName(f.optString("name", "voz-" + i + ".wav"));
+                byte[] data = Json.unbase64(f.optString("data", ""));
+                total += data.length;
+                if (total > 50L * 1024 * 1024) {
+                    throw new ApiException(413, "Demasiado grande: elige el paquete con \"Cargar paquete\"");
+                }
+                File target = new File(dir, String.format(java.util.Locale.US, "%04d%s", i, Guide.suffix(name).isEmpty() ? ".bin" : Guide.suffix(name)));
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(target)) {
+                    out.write(data);
+                }
+                uploads.add(new Guide.Upload(name, target));
+            }
+            String cue = request.isNull("cue") || request.optString("cue", "").isEmpty() ? null : request.optString("cue");
+            String set = request.isNull("set") || request.optString("set", "").isEmpty() ? null : request.optString("set");
+            return backend.importGuide(uploads, cue, set);
+        } finally {
+            Store.removeTree(dir);
+        }
     }
 
     // ---- estado general ---------------------------------------------------------------------
@@ -233,7 +323,7 @@ public final class LocalApi {
         features.put("stretchExport", false);
         features.put("ffmpeg", false);
         features.put("analysis", true);
-        features.put("guide", false);
+        features.put("guide", true);
         JSONObject out = new JSONObject();
         out.put("ok", true);
         out.put("app", "MoiMoi");
@@ -311,12 +401,6 @@ public final class LocalApi {
         }
         store.setSettings(allowed);
         return settings();
-    }
-
-    private static JSONObject emptyGuideKit() throws JSONException {
-        return new JSONObject().put("active", JSONObject.NULL).put("set", JSONObject.NULL)
-                .put("sets", new JSONArray()).put("cues", new JSONArray()).put("files", new JSONArray())
-                .put("count", 0).put("missing", new JSONArray()).put("clicks", new JSONArray());
     }
 
     // ---- canciones ----------------------------------------------------------------------------
