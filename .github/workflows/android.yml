@@ -110,6 +110,17 @@ jobs:
           cp ../modelo/htdemucs_6s.onnx ../modelo/htdemucs_6s.json android/app/src/main/assets/models/
           ls -la android/app/src/main/assets/models
 
+      - name: Comprobar las voces guía incluidas
+        working-directory: .
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          kit = json.load(open("recursos/voz-guia/kit.json", encoding="utf-8"))
+          missing = [i for i in kit["files"] if not os.path.isfile(f"recursos/voz-guia/audio/{i}.wav")]
+          print(len(kit["files"]), "audios en kit.json,", len(missing), "faltan")
+          assert not missing, missing[:10]
+          EOF
+
       - name: Compilar la app
         working-directory: frontend/android
         run: |
@@ -131,7 +142,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="App de Android de MoiMoi (compilación ${GITHUB_RUN_NUMBER}, ${GITHUB_SHA::7}). Descarga MoiMoi.apk en el celular, ábrelo e instálalo (Android pide permiso para instalar apps de fuera de Play Store). La separación de pistas se hace en el mismo celular: no necesita computadora."
+          notes="App de Android de MoiMoi (compilación ${GITHUB_RUN_NUMBER}, ${GITHUB_SHA::7}). Descarga MoiMoi.apk en el celular, ábrelo e instálalo (Android pide permiso para instalar apps de fuera de Play Store). Se instala encima de la versión anterior sin perder las canciones."
           if ! gh release view android >/dev/null 2>&1; then
             gh release create android --prerelease --target "$GITHUB_SHA" --title "MoiMoi para Android" --notes "$notes"
           fi

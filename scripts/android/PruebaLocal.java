@@ -655,6 +655,45 @@ public class PruebaLocal {
         }
         nuevo.stop();
         deleteTree(root2);
+
+        // 6) Se actualiza desde una versión que traía menos voces (sin "Puente" ni "Pre-coro" en
+        //    español): se agregan solas, sin duplicar nada ni volver a poner lo que el usuario borró.
+        File root3 = Files.createTempDirectory("moimoi-incluidas").toFile();
+        File anterior = new File(root3, "anterior");
+        new File(anterior, "voz-guia").mkdirs();
+        JSONObject menos = new JSONObject(new String(Files.readAllBytes(new File(recursos, "voz-guia/kit.json").toPath()), "UTF-8"));
+        java.util.Set<String> nuevas = new java.util.TreeSet<>(java.util.Arrays.asList("precoro", "puente"));
+        java.util.Set<String> nombres = new java.util.TreeSet<>(java.util.Arrays.asList("Pre-coro", "Puente"));
+        JSONObject archivos = menos.getJSONObject("files");
+        for (String id : ids(archivos.names(), "")) {
+            JSONObject info = archivos.getJSONObject(id);
+            if (info.optString("set").equals("es") && nuevas.contains(info.optString("cue"))) {
+                archivos.remove(id);
+            }
+        }
+        Files.write(new File(anterior, "voz-guia/kit.json").toPath(), menos.toString().getBytes("UTF-8"));
+        File audios = new File(anterior, "voz-guia/audio");
+        audios.mkdirs();
+        for (File f : new File(recursos, "voz-guia/audio").listFiles()) {
+            Files.copy(f.toPath(), new File(audios, f.getName()).toPath());
+        }
+        DesktopPlatform celular = new DesktopPlatform(root3, model, threads);
+        celular.bundled = anterior;
+        LocalBackend viejo = LocalBackend.create(celular);
+        int es = filesIn(viejo, "es"), total = call(viejo, "GET", "/api/guia", null, 200).getInt("count");
+        java.util.Set<String> faltaban = ids(call(viejo, "GET", "/api/guia?set=es", null, 200).getJSONArray("missing"), "");
+        check(faltaban.containsAll(nombres), "la versión anterior no tenía Puente ni Pre-coro: " + faltaban);
+        call(viejo, "DELETE", "/api/guia?set=pt", null, 200);
+        viejo.stop();
+        celular.bundled = recursos;
+        LocalBackend actualizado = LocalBackend.create(celular);
+        JSONObject kit3 = call(actualizado, "GET", "/api/guia", null, 200);
+        java.util.Set<String> faltan = ids(call(actualizado, "GET", "/api/guia?set=es", null, 200).getJSONArray("missing"), "");
+        check(filesIn(actualizado, "es") == es + nuevas.size() && kit3.getInt("count") == total + nuevas.size()
+                && java.util.Collections.disjoint(faltan, nombres), "al actualizar se agregan Puente y Pre-coro (faltan: " + faltan + ")");
+        check(!ids(kit3.getJSONArray("sets"), "id").contains("pt"), "al actualizar no vuelve el idioma borrado");
+        actualizado.stop();
+        deleteTree(root3);
     }
 
     static byte[] silentWav(double seconds) throws IOException {
@@ -694,7 +733,8 @@ public class PruebaLocal {
     }
 
     static void deleteTree(File f) {
-        File[] children = f.listFiles();
+        // Un enlace se borra sin entrar: lo de adentro no es de la prueba.
+        File[] children = Files.isSymbolicLink(f.toPath()) ? null : f.listFiles();
         if (children != null) {
             for (File c : children) {
                 deleteTree(c);

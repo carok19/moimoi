@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -350,6 +351,28 @@ def test_bundled_voices_install_once_respect_user_and_restore(tmp_path):
     kit.install_bundled(BUNDLE, restore=True)
     assert _files_in(kit, "fr") == fr and len(kit.describe()["clicks"]) == 8
     assert _files_in(kit, "es") == 2
+
+
+@pytest.mark.skipif(not (BUNDLE / "kit.json").is_file(), reason="no está recursos/voz-guia")
+def test_bundled_voices_update_adds_what_was_missing(tmp_path):
+    # Una versión anterior de MoiMoi traía menos voces (sin "Puente" ni "Pre-coro" en español).
+    later = {"precoro", "puente"}
+    older = json.loads((BUNDLE / "kit.json").read_text(encoding="utf-8"))
+    older["files"] = {i: f for i, f in older["files"].items() if not (f.get("set") == "es" and f.get("cue") in later)}
+    previous = tmp_path / "anterior"
+    shutil.copytree(BUNDLE / "audio", previous / "audio")
+    (previous / "kit.json").write_text(json.dumps(older, ensure_ascii=False), encoding="utf-8")
+    kit = guia.GuideKit(tmp_path / "voz-guia")
+    kit.install_bundled(previous)
+    es = _files_in(kit, "es")
+    assert not later & set(kit.assignments("es"))
+    kit.remove_set("pt")
+
+    # Al actualizar se agregan solas, sin duplicar nada ni volver a poner el idioma que borró.
+    assert kit.install_bundled(BUNDLE) == len(later)
+    assert later <= set(kit.assignments("es")) and _files_in(kit, "es") == es + len(later)
+    assert {"Pre-coro", "Puente"}.isdisjoint(kit.describe("es")["missing"])
+    assert "pt" not in [s["id"] for s in kit.describe()["sets"]]
 
 
 @pytest.mark.skipif(not (BUNDLE / "kit.json").is_file(), reason="no está recursos/voz-guia")

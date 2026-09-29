@@ -180,8 +180,9 @@ y cuenta "1, 2, 3, 4" en los compases que se agregan antes de empezar. Así, al 
 Alabanza, la banda escucha la estructura en los auriculares, y las partes quedan como marcadores.
 
 MoiMoi (en la computadora y en el celular) ya trae voces guía en **español, inglés, portugués y francés** y 8
-sonidos de click; se instalan solos la primera vez (vienen de `recursos/voz-guia/` del repositorio). En el
-reproductor se escuchan con las filas **Click** y **Guía** del mezclador.
+sonidos de click; se instalan solos la primera vez y, al actualizar MoiMoi, se agregan solas las voces nuevas que
+traiga (vienen de `recursos/voz-guia/` del repositorio). En el reproductor se escuchan con las filas **Click** y
+**Guía** del mezclador.
 
 1. En *Ajustes → Voz guía y click* elige el **idioma de la voz**, el **sonido del click** y si dice los números
    de las partes.
