@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -330,13 +331,32 @@ class ReprocessRequest(BaseModel):
     quality: str | None = None
 
 
+def _wait_until_stopped(db: Database, job_id: str, timeout: float) -> bool:
+    """Espera a que un trabajo cancelado termine de detenerse. True si ya no está activo."""
+    deadline = time.monotonic() + timeout
+    while True:
+        job = db.get_job(job_id)
+        if job is None or job["status"] not in ("queued", "running"):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
+
+
 @router.post("/songs/{song_id}/retry")
 def retry_song(request: Request, song_id: str, body: ReprocessRequest | None = None):
     """Vuelve a procesar (después de un error, o para separar con otro tipo/calidad)."""
     song = _song_or_404(request, song_id)
     db = _db(request)
-    if db.active_job_for_song(song_id, "process"):
+    active = db.active_job_for_song(song_id, "process")
+    worker = _worker(request)
+    # Recién cancelado: el trabajo tarda un momento en detenerse; se espera en vez de rechazar.
+    if active and worker is not None and worker.is_cancelling(active["id"]):
+        if _wait_until_stopped(db, active["id"], timeout=15.0):
+            active = None
+    if active:
         raise HTTPException(409, "La canción ya se está procesando")
+    song = db.get_song(song_id) or song
     preset = (body.preset if body else None) or song["preset"]
     quality = (body.quality if body else None) or song["quality"]
     _check_preset(preset, quality)

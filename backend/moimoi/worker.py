@@ -109,6 +109,10 @@ class Worker:
         with self._lock:
             return job_id in self._cancelled
 
+    def is_cancelling(self, job_id: str) -> bool:
+        """¿Se pidió cancelar este trabajo y todavía no terminó de detenerse?"""
+        return self._is_cancelled(job_id)
+
     # ---- bucle ------------------------------------------------------------------------
 
     def _loop(self, lane: str, kinds: tuple[str, ...]) -> None:
