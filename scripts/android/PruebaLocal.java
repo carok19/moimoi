@@ -29,7 +29,8 @@ import org.json.JSONObject;
  *
  * Agrega canciones desde WAV (mono a 48 kHz, para probar también la conversión), las separa en
  * 2, 4 y 6 pistas, revisa las pistas, las formas de onda, las exportaciones (.zip y mezcla), los
- * ajustes, cancelar/reintentar, borrar y que se retome lo que quedó a medias al reabrir la app.
+ * ajustes, el análisis (tempo, tonalidad, acordes, partes; volver a analizar), cancelar/reintentar,
+ * borrar y que se retome lo que quedó a medias al reabrir la app.
  */
 public class PruebaLocal {
 
@@ -212,6 +213,7 @@ public class PruebaLocal {
         JSONObject health = call(b, "GET", "/api/health", null, 200);
         check(health.getJSONObject("engine").getBoolean("available"), "motor disponible");
         check(!health.getJSONObject("features").getBoolean("youtube"), "sin YouTube todavía");
+        check(health.getJSONObject("features").getBoolean("analysis"), "análisis en el celular");
         JSONObject presets = call(b, "GET", "/api/presets", null, 200);
         check(presets.getJSONArray("presets").length() == 3 && presets.getString("default").equals("6stems"), "presets");
         JSONObject settings = call(b, "GET", "/api/settings", null, 200);
@@ -283,7 +285,34 @@ public class PruebaLocal {
             String b64 = peaks.getJSONObject("peaks").getString(key);
             check(java.util.Base64.getDecoder().decode(b64).length == buckets, "picos de " + key);
         }
-        call(b, "GET", "/api/songs/" + six.getString("id") + "/analysis", null, 404);
+
+        // ---- análisis (tempo, compás, tonalidad, acordes, partes, instrumentos)
+        JSONObject analysis = call(b, "GET", "/api/songs/" + six.getString("id") + "/analysis", null, 200);
+        check(analysis.getInt("version") == 1 && Math.abs(analysis.getDouble("duration") - six.getDouble("duration")) < 0.01,
+                "análisis: versión y duración " + analysis.optDouble("duration"));
+        check(analysis.getJSONObject("instruments").length() == 6 && analysis.getJSONObject("key").has("label")
+                && analysis.getJSONArray("sections").length() >= 1 && analysis.getJSONArray("chords").length() >= 1
+                && analysis.getJSONObject("tempo").has("beatsPerBar") && analysis.getJSONObject("tuning").has("a4"),
+                "análisis completo: " + analysis.getJSONObject("summary"));
+        check(!six.isNull("summary") && six.getJSONObject("summary").has("key")
+                && six.getJSONObject("summary").getJSONArray("instruments").length() <= 6, "resumen en la canción");
+        JSONArray sectionsFound = analysis.getJSONArray("sections");
+        check(sectionsFound.getJSONObject(0).getDouble("start") == 0.0
+                && Math.abs(sectionsFound.getJSONObject(sectionsFound.length() - 1).getDouble("end") - analysis.getDouble("duration")) < 0.01,
+                "las partes cubren toda la canción");
+        JSONObject analysisTwo = call(b, "GET", "/api/songs/" + two.getString("id") + "/analysis", null, 200);
+        check(analysisTwo.getJSONObject("instruments").length() == 2
+                && analysisTwo.getJSONObject("instruments").has("instrumental"), "análisis con 2 pistas");
+        boolean hasBeats = analysis.getJSONArray("beats").length() >= 4;
+        System.out.println("análisis: " + analysis.getJSONObject("summary") + " (" + analysis.getJSONArray("beats").length() + " pulsos)");
+
+        // Volver a analizar.
+        JSONObject again = call(b, "POST", "/api/songs/" + two.getString("id") + "/reanalyze", null, 200);
+        check(again.getString("kind").equals("reanalyze"), "volver a analizar: " + again);
+        check(waitJob(b, again.getString("id"), 120).getString("status").equals("done"), "reanálisis terminado");
+        two = waitSong(b, two.getString("id"), "ready", 60);
+        check(two.getString("stage").equals("Lista") && !two.isNull("summary"), "lista después de reanalizar");
+        call(b, "POST", "/api/songs/zzz/reanalyze", null, 404);
 
         // ---- editar
         JSONObject edited = call(b, "PATCH", "/api/songs/" + six.getString("id"),
@@ -298,19 +327,7 @@ public class PruebaLocal {
         check(job.getString("status").equals("done"), "exportación de pistas: " + job);
         LocalApi.Download zip = b.resolveDownload(job.getString("downloadUrl"), null);
         check(zip.name.equals("Artista Prueba - Nuevo.zip") && zip.mime.equals("application/zip"), "nombre del zip " + zip.name);
-        Map<String, byte[]> entries = new HashMap<>();
-        try (ZipInputStream zin = new ZipInputStream(new FileInputStream(zip.file))) {
-            ZipEntry e;
-            while ((e = zin.getNextEntry()) != null) {
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                byte[] buf = new byte[1 << 16];
-                int n;
-                while ((n = zin.read(buf)) > 0) {
-                    bytes.write(buf, 0, n);
-                }
-                entries.put(e.getName(), bytes.toByteArray());
-            }
-        }
+        Map<String, byte[]> entries = unzip(zip.file);
         check(entries.keySet().equals(new java.util.HashSet<>(java.util.Arrays.asList("Voz.wav", "Bajo.wav", "moimoi.json"))),
                 "contenido del zip " + entries.keySet());
         check(java.util.Arrays.equals(entries.get("Voz.wav"), Files.readAllBytes(stemFile(six, "vocals").toPath())), "Voz.wav igual a la pista");
@@ -319,10 +336,18 @@ public class PruebaLocal {
                 && manifest.getJSONArray("pistas").getJSONObject(0).getString("archivo").equals("Voz.wav"), "moimoi.json");
         check(manifest.getJSONObject("cancion").getLong("duracionMs") == Math.round(six.getDouble("duration") * 1000), "duración en moimoi.json");
 
-        // Paquete para Multitrack sin pulso: sin click ni cuenta (y avisa si se pide).
+        // Paquete para Multitrack con click y un compás de cuenta (si se detectó el pulso).
         job = waitJob(b, call(b, "POST", "/api/songs/" + six.getString("id") + "/exports",
-                "{\"type\":\"multitrack\",\"click\":true,\"preRollBars\":1}", 200).getString("id"), 30);
-        check(job.getString("status").equals("error") && job.getString("error").contains("pulso"), "click sin pulso: " + job);
+                "{\"type\":\"multitrack\",\"click\":true,\"preRollBars\":1}", 200).getString("id"), 60);
+        if (hasBeats) {
+            check(job.getString("status").equals("done"), "paquete con click: " + job);
+            Map<String, byte[]> withClick = unzip(b.resolveDownload(job.getString("downloadUrl"), null).file);
+            check(withClick.containsKey("Click.wav") && withClick.containsKey("moimoi.json"), "Click.wav en el paquete " + withClick.keySet());
+            JSONObject m = new JSONObject(new String(withClick.get("moimoi.json"), "UTF-8"));
+            check(m.toString().contains("Click.wav"), "el click en moimoi.json");
+        } else {
+            check(job.getString("status").equals("error") && job.getString("error").contains("pulso"), "click sin pulso: " + job);
+        }
         job = waitJob(b, call(b, "POST", "/api/songs/" + six.getString("id") + "/exports",
                 "{\"type\":\"multitrack\",\"tempo\":0.8}", 200).getString("id"), 30);
         check(job.getString("status").equals("error"), "velocidad al exportar todavía no");
@@ -362,6 +387,7 @@ public class PruebaLocal {
             check(System.currentTimeMillis() < end, "empezó a separar");
             Thread.sleep(50);
         }
+        call(b, "POST", "/api/songs/" + id3 + "/reanalyze", null, 409);
         JSONObject cancelled = call(b, "POST", "/api/songs/" + id3 + "/cancel", null, 200);
         check(cancelled.getString("status").equals("cancelled"), "cancelada");
         JSONObject retried = call(b, "POST", "/api/songs/" + id3 + "/retry", "{\"preset\":\"2stems\"}", 200);
@@ -392,6 +418,23 @@ public class PruebaLocal {
         System.out.printf("OK: %d comprobaciones en %.1f s%n", checks, (System.currentTimeMillis() - t0) / 1000.0);
         deleteTree(root);
         System.exit(0);
+    }
+
+    static Map<String, byte[]> unzip(File file) throws IOException {
+        Map<String, byte[]> entries = new HashMap<>();
+        try (ZipInputStream zin = new ZipInputStream(new FileInputStream(file))) {
+            ZipEntry e;
+            while ((e = zin.getNextEntry()) != null) {
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                byte[] buf = new byte[1 << 16];
+                int n;
+                while ((n = zin.read(buf)) > 0) {
+                    bytes.write(buf, 0, n);
+                }
+                entries.put(e.getName(), bytes.toByteArray());
+            }
+        }
+        return entries;
     }
 
     static void deleteTree(File f) {

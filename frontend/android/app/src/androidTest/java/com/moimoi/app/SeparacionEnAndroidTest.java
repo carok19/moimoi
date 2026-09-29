@@ -84,6 +84,16 @@ public class SeparacionEnAndroidTest {
         }
         JSONObject peaks = call("GET", "/api/songs/" + id + "/peaks", null);
         assertEquals(25, peaks.getInt("perSecond"));
+
+        // El análisis (tempo, tonalidad, acordes, partes, instrumentos) también se hace en Android.
+        JSONObject analysis = call("GET", "/api/songs/" + id + "/analysis", null);
+        assertEquals(1, analysis.getInt("version"));
+        assertEquals(song.getDouble("duration"), analysis.getDouble("duration"), 0.01);
+        assertEquals(stems.length(), analysis.getJSONObject("instruments").length());
+        assertTrue(analysis.getJSONArray("sections").length() >= 1);
+        assertTrue(analysis.getJSONObject("key").has("name"));
+        assertTrue(!song.isNull("summary"));
+        System.out.println("MoiMoi: análisis de " + asset + ": " + analysis.getJSONObject("summary"));
         return song;
     }
 

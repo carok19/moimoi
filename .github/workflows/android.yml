@@ -80,13 +80,14 @@ jobs:
         working-directory: .
         run: python scripts/android/probar_motor.py modelo java-libs/onnxruntime.jar --segundos 20
 
-      - name: Probar el "servidor" del celular (separar, pistas, exportar, cancelar, retomar)
+      - name: Probar el "servidor" del celular (separar, analizar, pistas, exportar, cancelar, retomar)
         working-directory: .
         run: |
           mkdir -p build-java
           CP=java-libs/onnxruntime.jar:java-libs/android-json.jar
           javac -encoding UTF-8 -d build-java -cp "$CP" \
             frontend/android/app/src/main/java/com/moimoi/engine/*.java \
+            frontend/android/app/src/main/java/com/moimoi/analysis/*.java \
             frontend/android/app/src/main/java/com/moimoi/local/*.java \
             scripts/android/PruebaLocal.java
           java -Xmx768m -cp "build-java:$CP" PruebaLocal modelo 4

@@ -127,9 +127,13 @@ real) y en **Exportar** armas las pistas sueltas, la mezcla o el paquete `.zip` 
 **Compartir** abre el menú de Android (WhatsApp, Drive, correo…) y **Guardar en el celular** lo deja en
 *Descargas/MoiMoi*.
 
-Todavía no están en la app del celular (sí en la computadora): links y búsqueda de YouTube, el análisis de tempo,
-acordes, tonalidad y partes, el click y la voz guía en el paquete, exportar con otra velocidad o tono, MP3, y la
-letra automática. Llegan en las próximas versiones.
+Después de separar, la app analiza la canción en el mismo celular, igual que en la computadora: tempo (BPM),
+compás, tonalidad y cambios de tonalidad, acordes (con inversiones), partes (intro, verso, coro, puente…) e
+instrumentos. Con eso el reproductor muestra los acordes y las partes, el metrónomo sigue el pulso y el paquete
+para Multitrack puede llevar el click y la cuenta inicial.
+
+Todavía no están en la app del celular (sí en la computadora): links y búsqueda de YouTube, la voz guía en el
+paquete, exportar con otra velocidad o tono, MP3, y la letra automática. Llegan en las próximas versiones.
 
 **Usar la computadora desde la app (opcional):** en *Ajustes → Celular o computadora → Usar MoiMoi de la
 computadora* la app se conecta a MoiMoi en una computadora de la **misma red WiFi** (más rápido con tarjeta

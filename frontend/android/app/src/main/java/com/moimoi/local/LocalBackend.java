@@ -65,8 +65,15 @@ public final class LocalBackend implements Jobs.Handler {
     private void start() {
         try {
             for (String id : Processor.interrupted(store)) {
-                store.updateSong(id, "status", "queued", "stage", "En cola (reanudando)");
-                jobs.enqueue("process", id, null, "En cola");
+                JSONObject song = store.getSong(id);
+                if (song != null && song.optString("status").equals("analyzing") && hasStems(song, id)) {
+                    // Ya estaba separada: solo falta el análisis.
+                    store.updateSong(id, "stage", "En cola para analizar (reanudando)", "progress", 0.0);
+                    jobs.enqueue("reanalyze", id, null, "En cola");
+                } else {
+                    store.updateSong(id, "status", "queued", "stage", "En cola (reanudando)");
+                    jobs.enqueue("process", id, null, "En cola");
+                }
             }
         } catch (JSONException e) {
             e.printStackTrace();
@@ -77,6 +84,39 @@ public final class LocalBackend implements Jobs.Handler {
 
     public void stop() {
         jobs.stop();
+    }
+
+    /** ¿Están todas las pistas de la canción guardadas? */
+    private boolean hasStems(JSONObject song, String id) {
+        org.json.JSONArray stems = song.optJSONArray("stems");
+        if (stems == null || stems.length() == 0) {
+            return false;
+        }
+        try {
+            File dir = store.files(id).stemsDir();
+            for (int i = 0; i < stems.length(); i++) {
+                if (!new File(dir, stems.optString(i) + ".wav").isFile()) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (ApiException e) {
+            return false;
+        }
+    }
+
+    /** Vuelve a analizar tempo, acordes y partes de una canción lista. */
+    public JSONObject reanalyze(String songId) throws ApiException, JSONException {
+        JSONObject song = store.getSong(songId);
+        if (song == null) {
+            throw new ApiException(404, "La canción no existe");
+        }
+        if (!song.optString("status").equals("ready")) {
+            throw new ApiException(409, "La canción todavía no está lista");
+        }
+        JSONObject job = jobs.enqueue("reanalyze", songId, null, "En cola");
+        store.updateSong(songId, "status", "analyzing", "stage", "En cola para analizar", "progress", 0.0);
+        return job;
     }
 
     public LocalApi.Response request(String method, String path, String body) {
@@ -304,6 +344,9 @@ public final class LocalBackend implements Jobs.Handler {
         String kind = job.optString("kind");
         if (kind.equals("process")) {
             return processor.process(job, report);
+        }
+        if (kind.equals("reanalyze")) {
+            return processor.reanalyze(job, report);
         }
         if (kind.equals("export")) {
             String songId = job.optString("song_id");

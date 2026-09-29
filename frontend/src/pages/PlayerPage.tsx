@@ -24,7 +24,7 @@ const PROCESSING = new Set(['queued', 'downloading', 'separating', 'analyzing'])
 
 export function PlayerPage({ songId }: { songId: string }) {
   const { settings, health } = useApp()
-  // En el celular el análisis (tempo, acordes, partes) llega en la próxima versión.
+  // "Volver a analizar" (tempo, acordes, partes), si el programa que responde lo tiene.
   const canAnalyze = health?.features.analysis ?? true
   const toast = useToast()
   const [reloadKey, setReloadKey] = useState(0)

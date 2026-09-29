@@ -176,8 +176,8 @@ export function SettingsPage() {
           <h2>Voz guía y click</h2>
           {health?.features.guide === false ? (
             <div className="small muted">
-              La voz guía (que anuncia "Verso 1, Coro…") y los sonidos de click del paquete llegan a la app del celular en
-              la próxima versión, junto con el análisis de tempo, acordes y partes.
+              La voz guía (que anuncia "Verso 1, Coro…") llega a la app del celular en la próxima versión. El click y la
+              cuenta inicial ya se pueden agregar al paquete para Multitrack.
             </div>
           ) : <GuideVoices />}
         </section>

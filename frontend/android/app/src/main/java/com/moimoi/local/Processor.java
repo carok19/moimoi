@@ -1,5 +1,6 @@
 package com.moimoi.local;
 
+import com.moimoi.analysis.Analyzer;
 import com.moimoi.engine.DemucsSeparator;
 import java.io.File;
 import java.io.IOException;
@@ -13,7 +14,8 @@ import org.json.JSONObject;
 
 /**
  * Procesa una canción en el celular (como Worker._process_song): decodifica el archivo, lo pasa a
- * 44,1 kHz estéreo, separa las pistas con Demucs y guarda las pistas y sus formas de onda.
+ * 44,1 kHz estéreo, separa las pistas con Demucs, guarda las pistas y sus formas de onda y analiza
+ * la canción (tempo, compás, tonalidad, acordes, partes e instrumentos).
  */
 public final class Processor {
 
@@ -69,7 +71,7 @@ public final class Processor {
             preset = Stems.PRESETS.get(Stems.DEFAULT_PRESET);
         }
         final String title = song.optString("title", "Canción");
-        final Stage stage = new Stage("decode", 4, "separate", 90, "save", 2);
+        final Stage stage = new Stage("decode", 4, "separate", 90, "save", 2, "analyze", 4);
         store.updateSong(songId, "status", "queued", "error", null, "stage", "Preparando…");
 
         File source = paths.source();
@@ -99,6 +101,7 @@ public final class Processor {
                 raw.delete();
                 audioFile = converted;
             }
+            List<String> names;
             try (Pcm.Reader audio = new Pcm.Reader(audioFile, 2, SAMPLE_RATE)) {
                 double duration = audio.frames / (double) SAMPLE_RATE;
                 if (duration > MAX_DURATION_S) {
@@ -154,20 +157,92 @@ public final class Processor {
                         }
                     }
                 }
-                List<String> names = Stems.ordered(stems);
+                names = Stems.ordered(stems);
                 store.updateSong(songId, "stems", Json.array(names), "model", MODEL);
                 report.at("save", 1.0, "Pistas listas", "separating");
-                store.updateSong(songId, "status", "ready", "progress", 1.0, "stage", "Lista", "error", null);
-                JSONObject result = new JSONObject();
-                result.put("stems", new JSONArray(names));
-                result.put("model", MODEL);
-                return result;
             }
+
+            // 4) Analizar. Si no se puede (p. ej. no alcanza la memoria), la canción igual queda
+            //    lista con sus pistas y se puede volver a analizar desde el reproductor.
+            Store.removeTree(tmpDir);
+            String problem = analyze(songId, paths, names, (f, m) -> report.at("analyze", f, m, "analyzing"));
+            if (problem != null) {
+                System.err.println("MoiMoi: " + problem);
+            }
+            store.updateSong(songId, "status", "ready", "progress", 1.0, "stage", "Lista", "error", null,
+                    "analysis_error", problem);
+            JSONObject result = new JSONObject();
+            result.put("stems", new JSONArray(names));
+            result.put("model", MODEL);
+            return result;
         } finally {
             if (sink != null) {
                 sink.abort();
             }
             Store.removeTree(tmpDir);
+        }
+    }
+
+    /** Vuelve a analizar una canción ya separada (trabajo "reanalyze"). */
+    public JSONObject reanalyze(JSONObject job, Jobs.Reporter jobReport) throws Exception {
+        String songId = job.optString("song_id");
+        JSONObject song = store.getSong(songId);
+        if (song == null) {
+            throw new IllegalStateException("La canción ya no existe");
+        }
+        List<String> names = new ArrayList<>();
+        JSONArray list = song.optJSONArray("stems");
+        for (int i = 0; list != null && i < list.length(); i++) {
+            names.add(list.getString(i));
+        }
+        if (names.isEmpty()) {
+            throw new IllegalStateException("La canción todavía no tiene pistas separadas");
+        }
+        Reporter report = new Reporter(jobReport, songId, song.optString("title", "Canción"), new Stage("analyze", 1));
+        String problem = analyze(songId, store.files(songId), names, (f, m) -> report.at("analyze", f, m, "analyzing"));
+        if (problem != null) {
+            throw new IOException(problem);
+        }
+        store.updateSong(songId, "status", "ready", "progress", 1.0, "stage", "Lista", "analysis_error", null);
+        return new JSONObject().put("analysis", true);
+    }
+
+    /**
+     * Analiza las pistas guardadas y guarda el resultado (analisis.json y el resumen en la canción).
+     * Devuelve null si salió bien, o por qué no se pudo; cancelar sigue lanzando Jobs.Cancelled.
+     */
+    String analyze(String songId, Store.SongFiles paths, List<String> names, Analyzer.Progress progress) {
+        progress.report(0.0, "Analizando tempo, acordes y tonalidad…");
+        StemFiles source = new StemFiles(paths.stemsDir());
+        try {
+            int samples = 0;
+            for (String name : names) {
+                samples = Math.max(samples, source.length(name));
+            }
+            Runtime rt = Runtime.getRuntime();
+            long available = rt.maxMemory() - (rt.totalMemory() - rt.freeMemory());
+            long needed = Analyzer.memoryNeeded(names, samples);
+            if (needed > available) {
+                return String.format(java.util.Locale.US,
+                        "La canción es muy larga para analizarla en este celular (necesita %d MB de memoria y hay %d MB).",
+                        needed >> 20, available >> 20);
+            }
+            JSONObject analysis = Analyzer.analyze(names, source, progress);
+            Json.write(paths.analysis(), analysis);
+            JSONObject song = store.getSong(songId);
+            JSONObject meta = song == null ? null : song.optJSONObject("meta");
+            meta = meta == null ? new JSONObject() : new JSONObject(meta.toString());
+            meta.put("summary", analysis.optJSONObject("summary"));
+            store.updateSong(songId, "meta", meta);
+            return null;
+        } catch (Jobs.Cancelled e) {
+            throw e;
+        } catch (OutOfMemoryError e) {
+            System.gc();
+            return "No alcanzó la memoria del celular para analizar la canción.";
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "No se pudo analizar la canción: " + e.getMessage();
         }
     }
 

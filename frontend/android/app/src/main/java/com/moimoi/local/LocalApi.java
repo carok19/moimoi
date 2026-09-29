@@ -232,7 +232,7 @@ public final class LocalApi {
         features.put("lyrics", false);
         features.put("stretchExport", false);
         features.put("ffmpeg", false);
-        features.put("analysis", false);
+        features.put("analysis", true);
         features.put("guide", false);
         JSONObject out = new JSONObject();
         out.put("ok", true);
@@ -434,7 +434,7 @@ public final class LocalApi {
             return songToApi(backend.retry(id, bodyObject(body)));
         }
         if (n == 3 && action.equals("reanalyze") && post) {
-            throw new ApiException(501, "El análisis de tempo, acordes y partes en el celular llega en la próxima versión.");
+            return jobToApi(backend.reanalyze(id));
         }
         if (n == 3 && action.equals("analysis") && get) {
             JSONObject data = Json.readObject(paths.analysis());
