@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 import android.content.Context;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
+import com.moimoi.analysis.Analyzer;
 import com.moimoi.local.LocalApi;
 import com.moimoi.local.LocalBackend;
 import com.moimoi.local.Wav;
@@ -87,11 +88,14 @@ public class SeparacionEnAndroidTest {
 
         // El análisis (tempo, tonalidad, acordes, partes, instrumentos) también se hace en Android.
         JSONObject analysis = call("GET", "/api/songs/" + id + "/analysis", null);
-        assertEquals(1, analysis.getInt("version"));
+        assertEquals(Analyzer.VERSION, analysis.getInt("version"));
         assertEquals(song.getDouble("duration"), analysis.getDouble("duration"), 0.01);
         assertEquals(stems.length(), analysis.getJSONObject("instruments").length());
         assertTrue(analysis.getJSONArray("sections").length() >= 1);
         assertTrue(analysis.getJSONObject("key").has("name"));
+        // Las partes con tempo propio y la curva de golpes (para rehacer el pulso con el BPM a mano).
+        assertTrue(analysis.getJSONObject("tempo").has("segments"));
+        assertTrue(analysis.has("onset"));
         assertTrue(!song.isNull("summary"));
         System.out.println("MoiMoi: análisis de " + asset + ": " + analysis.getJSONObject("summary"));
         return song;
