@@ -432,10 +432,6 @@ public final class Exporter {
         if (semitones < -12 || semitones > 12) {
             throw new ExportError("Transposición fuera de rango (-12 a 12)");
         }
-        if (Math.abs(tempo - 1.0) >= 1e-3 || semitones != 0) {
-            throw new ExportError("Cambiar la velocidad o el tono al exportar todavía no está disponible en el "
-                    + "celular: desmarca \"Aplicar los cambios actuales\".");
-        }
         int preRollBars = params.optInt("preRollBars", 0);
         if (preRollBars < 0 || preRollBars > 4) {
             throw new ExportError("Cuenta inicial fuera de rango (0 a 4 compases)");
@@ -447,10 +443,12 @@ public final class Exporter {
         JSONObject settings = song.optJSONObject("settings");
         Grid grid = effectiveGrid(analysis, settings);
         String baseName = safeFilename(displayName(song));
+        String suffix = variantSuffix(tempo, semitones, analysis);
+        boolean changed = Stretch.needed(tempo, semitones);
         double duration = song.optDouble("duration", analysis.optDouble("duration", 0));
 
         if (kind.equals("mix")) {
-            return exportMix(paths, params, wanted, grid, baseName, outDir, progress);
+            return exportMix(paths, params, wanted, grid, baseName + suffix, outDir, progress, tempo, semitones);
         }
         if (!kind.equals("multitrack") && !kind.equals("stems")) {
             throw new ExportError("Tipo de exportación desconocido: " + kind);
@@ -483,14 +481,21 @@ public final class Exporter {
         double lengthS = timeline.preRoll + duration / tempo;
         int length = (int) Math.round(lengthS * SR);
         int pre = (int) Math.round(timeline.preRoll * SR);
-        boolean plain = pre == 0;
+        boolean plain = !changed && pre == 0;
 
-        String zipName = baseName + ".zip";
+        String zipName = baseName + suffix + ".zip";
+        // Con otra velocidad o tono: primero se estiran todas las pistas, varias a la vez.
+        Map<String, File> stretchedFiles = new LinkedHashMap<>();
+        Map<String, Float> stretchedPeaks = new LinkedHashMap<>();
+        if (changed) {
+            stretchAll(paths, wanted, tempo, semitones, outDir, progress, stretchedFiles, stretchedPeaks);
+        }
         File target = new File(outDir, "paquete.zip");
         int steps = wanted.size() + (wantClick ? 1 : 0) + (wantGuide ? 1 : 0) + 1;
         List<Guide.Placement> placements = new ArrayList<>();
         int step = 0;
         JSONArray tracks = new JSONArray();
+        try {
         try (ZipOutputStream zip = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(target), 1 << 16))) {
             zip.setMethod(ZipOutputStream.DEFLATED);
             zip.setLevel(Deflater.BEST_SPEED);
@@ -527,13 +532,22 @@ public final class Exporter {
                 Stems.Info info = Stems.INFO.get(name);
                 String label = info != null ? info.name : name;
                 String fileBase = info != null ? info.fileName : name;
-                progress.report(step / (double) steps, "Preparando " + label + "…");
+                progress.report(changed ? 0.85 + 0.15 * step / steps : step / (double) steps, "Preparando " + label + "…");
                 File stemFile = paths.stem(name);
                 if (!stemFile.isFile()) {
                     throw new ExportError("Falta la pista " + label + ": vuelve a separar la canción");
                 }
                 zip.putNextEntry(new ZipEntry(fileBase + ".wav"));
-                if (plain) {
+                if (changed) {
+                    File tmp = stretchedFiles.get(name);
+                    // Como soft_limit(…, 0.99): si el estiramiento subió algún pico, se baja todo un poco.
+                    float peak = stretchedPeaks.get(name);
+                    float gain = peak > 0.99f ? 0.99f / peak : 1f;
+                    try (Pcm.Reader stretched = new Pcm.Reader(tmp, 2, SR)) {
+                        writeFitted(stretched, gain, zip, length, pre, progress);
+                    }
+                    tmp.delete();
+                } else if (plain) {
                     try (InputStream in = new FileInputStream(stemFile)) {
                         int n;
                         while ((n = in.read(buffer)) > 0) {
@@ -555,6 +569,11 @@ public final class Exporter {
             zip.putNextEntry(new ZipEntry("moimoi.json"));
             zip.write(manifest.toString(2).getBytes(Json.UTF8));
             zip.closeEntry();
+        }
+        } finally {
+            for (File f : stretchedFiles.values()) {
+                f.delete();
+            }
         }
         progress.report(1.0, "Listo");
         return result(target, zipName, MIME_ZIP);
@@ -602,7 +621,11 @@ public final class Exporter {
     }
 
     private static JSONObject exportMix(Store.SongFiles paths, JSONObject params, List<String> wanted, Grid grid,
-                                        String baseName, File outDir, Jobs.Reporter progress) throws Exception {
+                                        String baseName, File outDir, Jobs.Reporter progress, double tempo,
+                                        int semitones) throws Exception {
+        if (Stretch.needed(tempo, semitones)) {
+            return exportMixStretched(paths, params, wanted, grid, baseName, outDir, progress, tempo, semitones);
+        }
         progress.report(0.05, "Leyendo pistas…");
         Map<String, double[]> channels = activeChannels(params.optJSONObject("mixer"), wanted);
         if (channels.isEmpty()) {
@@ -686,10 +709,294 @@ public final class Exporter {
         return result(new File(outDir, "mezcla.wav"), baseName + " (mezcla).wav", MIME_WAV);
     }
 
+    /**
+     * Mezcla con otra velocidad y tono (como exports.py): se mezcla, se estira la mezcla, se suma el
+     * click (en los pulsos ya estirados) y, si hace falta, se baja todo para no saturar.
+     */
+    private static JSONObject exportMixStretched(Store.SongFiles paths, JSONObject params, List<String> wanted,
+                                                 Grid grid, String baseName, File outDir, Jobs.Reporter progress,
+                                                 double tempo, int semitones) throws Exception {
+        progress.report(0.02, "Leyendo pistas…");
+        Map<String, double[]> channels = activeChannels(params.optJSONObject("mixer"), wanted);
+        if (channels.isEmpty()) {
+            throw new ExportError("Todas las pistas elegidas están en silencio");
+        }
+        File mixed = new File(outDir, "tmp-mezcla.f32");
+        File stretched = new File(outDir, "tmp-mezcla-estirada.f32");
+        try {
+            List<Wav.Reader> readers = new ArrayList<>();
+            List<double[]> gains = new ArrayList<>();
+            try (Pcm.Writer w = new Pcm.Writer(mixed, 2)) {
+                long frames = 0;
+                for (Map.Entry<String, double[]> e : channels.entrySet()) {
+                    Wav.Reader reader = new Wav.Reader(paths.stem(e.getKey()));
+                    readers.add(reader);
+                    double[] pan = panGains(e.getValue()[1]);
+                    gains.add(new double[] {e.getValue()[0] * pan[0], e.getValue()[0] * pan[1]});
+                    frames = Math.max(frames, reader.frames);
+                }
+                float[] tl = new float[BLOCK], tr = new float[BLOCK], inter = new float[2 * BLOCK];
+                for (long start = 0; start < frames; start += BLOCK) {
+                    if (progress.cancelled()) {
+                        throw new Jobs.Cancelled();
+                    }
+                    int n = (int) Math.min(BLOCK, frames - start);
+                    Arrays.fill(inter, 0, 2 * n, 0f);
+                    for (int k = 0; k < readers.size(); k++) {
+                        readers.get(k).read(0, start, tl, 0, n);
+                        readers.get(k).read(1, start, tr, 0, n);
+                        float gl = (float) gains.get(k)[0], gr = (float) gains.get(k)[1];
+                        for (int i = 0; i < n; i++) {
+                            inter[2 * i] += tl[i] * gl;
+                            inter[2 * i + 1] += tr[i] * gr;
+                        }
+                    }
+                    w.writeInterleaved(inter, n);
+                    progress.report(0.02 + 0.08 * (start + n) / (double) frames, "Mezclando…");
+                }
+            } finally {
+                for (Wav.Reader reader : readers) {
+                    reader.close();
+                }
+            }
+            try (Pcm.Reader in = new Pcm.Reader(mixed, 2, SR)) {
+                stretchToFile(source(in), tempo, semitones, stretched,
+                        f -> progress.report(0.1 + 0.75 * f, "Aplicando velocidad y tono…"));
+            }
+            mixed.delete();
+            try (Pcm.Reader in = new Pcm.Reader(stretched, 2, SR)) {
+                long frames = in.frames;
+                boolean withClick = params.optBoolean("click", false) && grid.beats.length > 0;
+                float[] click = withClick ? clickTrack(grid, (int) frames,
+                        new Timeline(tempo, 0.0, new double[0], grid.beatsPerBar)) : null;
+                double clickGain = params.optDouble("clickVolume", 0.6);
+                float[] l = new float[BLOCK], r = new float[BLOCK];
+                float peak = 0f;
+                for (int pass = 0; pass < 2; pass++) {
+                    float scale = pass == 1 && peak > 0.97f ? 0.97f / peak : 1f;
+                    Wav.Writer writer = pass == 1 ? new Wav.Writer(new File(outDir, "mezcla.wav"), 2, SR) : null;
+                    try {
+                        for (long start = 0; start < frames; start += BLOCK) {
+                            if (progress.cancelled()) {
+                                throw new Jobs.Cancelled();
+                            }
+                            int n = (int) Math.min(BLOCK, frames - start);
+                            in.read(0, start, l, 0, n);
+                            in.read(1, start, r, 0, n);
+                            if (click != null) {
+                                for (int i = 0; i < n; i++) {
+                                    float c = (float) (clickGain * click[(int) start + i]);
+                                    l[i] += c;
+                                    r[i] += c;
+                                }
+                            }
+                            if (pass == 0) {
+                                for (int i = 0; i < n; i++) {
+                                    peak = Math.max(peak, Math.max(Math.abs(l[i]), Math.abs(r[i])));
+                                }
+                            } else {
+                                for (int i = 0; i < n; i++) {
+                                    l[i] *= scale;
+                                    r[i] *= scale;
+                                }
+                                writer.write(l, r, n);
+                            }
+                        }
+                        progress.report(0.85 + 0.07 * (pass + 1), "Guardando…");
+                    } finally {
+                        if (writer != null) {
+                            writer.close();
+                        }
+                    }
+                }
+            }
+        } finally {
+            mixed.delete();
+            stretched.delete();
+        }
+        progress.report(1.0, "Listo");
+        return result(new File(outDir, "mezcla.wav"), baseName + " (mezcla).wav", MIME_WAV);
+    }
+
+    /** Tonalidad transpuesta {tonic, mode, name, label}, o null si no hay análisis. */
+    static JSONObject transposedKey(JSONObject analysis, int semitones) throws JSONException {
+        JSONObject key = analysis.optJSONObject("key");
+        if (key == null || !key.has("tonic")) {
+            return null;
+        }
+        int tonic = Math.floorMod(key.optInt("tonic") + semitones, 12);
+        boolean major = !"minor".equals(key.optString("mode"));
+        return new JSONObject().put("tonic", tonic).put("mode", key.optString("mode", "major"))
+                .put("name", com.moimoi.analysis.Music.keyName(tonic, major))
+                .put("label", com.moimoi.analysis.Music.keyLabel(tonic, major));
+    }
+
+    /** " (en A, 90%)": el nombre del archivo dice la tonalidad y la velocidad si cambiaron. */
+    static String variantSuffix(double tempo, int semitones, JSONObject analysis) throws JSONException {
+        List<String> parts = new ArrayList<>();
+        if (semitones != 0) {
+            JSONObject key = transposedKey(analysis, semitones);
+            parts.add(key != null ? "en " + key.optString("name") : String.format(java.util.Locale.US, "%+d st", semitones));
+        }
+        if (Math.abs(tempo - 1.0) >= 1e-3) {
+            parts.add(String.format(java.util.Locale.US, "%.0f%%", tempo * 100));
+        }
+        return parts.isEmpty() ? "" : " (" + Json.join(", ", parts) + ")";
+    }
+
+    static Stretch.Source source(final Wav.Reader in) {
+        return new Stretch.Source() {
+            @Override
+            public long frames() {
+                return in.frames;
+            }
+
+            @Override
+            public void read(int channel, long start, float[] dst, int offset, int count) {
+                in.read(channel, start, dst, offset, count);
+            }
+        };
+    }
+
+    static Stretch.Source source(final Pcm.Reader in) {
+        return new Stretch.Source() {
+            @Override
+            public long frames() {
+                return in.frames;
+            }
+
+            @Override
+            public void read(int channel, long start, float[] dst, int offset, int count) {
+                in.read(channel, start, dst, offset, count);
+            }
+        };
+    }
+
+    /**
+     * Estira las pistas (hasta 4 a la vez, según los núcleos) a archivos temporales. El avance y la
+     * cancelación se atienden en este hilo; si se cancela o falla una, se paran todas.
+     */
+    static void stretchAll(Store.SongFiles paths, List<String> stems, final double tempo, final int semitones,
+                           File outDir, Jobs.Reporter progress, Map<String, File> files, Map<String, Float> peaks)
+            throws Exception {
+        int threads = Math.max(1, Math.min(4, Math.min(stems.size(), Runtime.getRuntime().availableProcessors())));
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        final double[] fractions = new double[stems.size()];
+        final java.util.concurrent.atomic.AtomicBoolean stop = new java.util.concurrent.atomic.AtomicBoolean(false);
+        List<java.util.concurrent.Future<Float>> futures = new ArrayList<>();
+        try {
+            for (int i = 0; i < stems.size(); i++) {
+                final int index = i;
+                final File stemFile = paths.stem(stems.get(i));
+                final File tmp = new File(outDir, "tmp-" + stems.get(i) + ".f32");
+                files.put(stems.get(i), tmp);
+                futures.add(pool.submit(() -> {
+                    if (!stemFile.isFile()) {
+                        throw new ExportError("Falta la pista " + stems.get(index) + ": vuelve a separar la canción");
+                    }
+                    try (Wav.Reader in = new Wav.Reader(stemFile)) {
+                        return stretchToFile(source(in), tempo, semitones, tmp, f -> {
+                            if (stop.get()) {
+                                throw new Jobs.Cancelled();
+                            }
+                            synchronized (fractions) {
+                                fractions[index] = f;
+                            }
+                        });
+                    }
+                }));
+            }
+            while (true) {
+                boolean done = true;
+                for (java.util.concurrent.Future<Float> f : futures) {
+                    done &= f.isDone();
+                }
+                double total = 0;
+                synchronized (fractions) {
+                    for (double f : fractions) {
+                        total += f;
+                    }
+                }
+                progress.report(0.85 * total / stems.size(), "Cambiando velocidad y tono…"); // lanza Cancelled
+                if (done) {
+                    break;
+                }
+                Thread.sleep(200);
+            }
+            for (int i = 0; i < stems.size(); i++) {
+                try {
+                    peaks.put(stems.get(i), futures.get(i).get());
+                } catch (java.util.concurrent.ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    if (cause instanceof Exception) {
+                        throw (Exception) cause;
+                    }
+                    throw e;
+                }
+            }
+        } catch (Exception e) {
+            stop.set(true);
+            for (File f : files.values()) {
+                f.delete();
+            }
+            throw e;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** Estira a un archivo temporal (float estéreo) y devuelve el pico. */
+    static float stretchToFile(Stretch.Source src, double tempo, int semitones, File tmp, Stretch.Progress progress)
+            throws IOException {
+        final float[] peak = {0f};
+        try (final Pcm.Writer w = new Pcm.Writer(tmp, 2)) {
+            final float[] inter = new float[2 * 8192];
+            Stretch.process(src, tempo, semitones, (l, r, n) -> {
+                for (int done = 0; done < n; ) {
+                    int m = Math.min(n - done, inter.length / 2);
+                    for (int i = 0; i < m; i++) {
+                        float a = l[done + i], b = r[done + i];
+                        inter[2 * i] = a;
+                        inter[2 * i + 1] = b;
+                        peak[0] = Math.max(peak[0], Math.max(Math.abs(a), Math.abs(b)));
+                    }
+                    w.writeInterleaved(inter, m);
+                    done += m;
+                }
+            }, progress);
+        }
+        return peak[0];
+    }
+
+    /** Como writeFitted, desde el archivo estirado y con una ganancia. */
+    private static void writeFitted(Pcm.Reader in, float gain, OutputStream out, int length, int pre,
+                                    Jobs.Reporter progress) throws IOException {
+        Wav.Writer w = new Wav.Writer(out, 2, SR, length);
+        float[] l = new float[BLOCK];
+        float[] r = new float[BLOCK];
+        for (int start = 0; start < length; start += BLOCK) {
+            if (progress.cancelled()) {
+                throw new Jobs.Cancelled();
+            }
+            int n = Math.min(BLOCK, length - start);
+            in.read(0, start - (long) pre, l, 0, n);
+            in.read(1, start - (long) pre, r, 0, n);
+            if (gain != 1f) {
+                for (int i = 0; i < n; i++) {
+                    l[i] *= gain;
+                    r[i] *= gain;
+                }
+            }
+            w.write(l, r, n);
+        }
+        w.finish();
+    }
+
     static JSONObject manifest(JSONObject song, JSONObject analysis, Grid grid, JSONArray sections, JSONArray tracks,
                                Timeline timeline, int semitones, double lengthS, String appVersion,
                                List<Guide.Placement> placements) throws JSONException {
-        JSONObject key = analysis.optJSONObject("key");
+        JSONObject original = analysis.optJSONObject("key");
+        JSONObject key = transposedKey(analysis, semitones);
         JSONObject cancion = new JSONObject();
         cancion.put("titulo", song.opt("title"));
         cancion.put("artista", song.has("artist") ? song.opt("artist") : JSONObject.NULL);
@@ -698,21 +1005,25 @@ public final class Exporter {
         cancion.put("compas", grid.beatsPerBar);
         cancion.put("tonalidad", key == null ? JSONObject.NULL : key.opt("name"));
         cancion.put("tonalidadNombre", key == null ? JSONObject.NULL : key.opt("label"));
-        cancion.put("tonalidadOriginal", key == null ? JSONObject.NULL : key.opt("name"));
+        cancion.put("tonalidadOriginal", original == null ? JSONObject.NULL : original.opt("name"));
         cancion.put("transposicion", semitones);
         cancion.put("velocidad", timeline.tempo);
         cancion.put("cuentaInicialMs", Math.round(timeline.preRoll * 1000));
         JSONArray chords = new JSONArray();
         JSONArray found = analysis.optJSONArray("chords");
+        boolean flats = key != null && com.moimoi.analysis.Music.usesFlats(key.optInt("tonic"), !"minor".equals(key.optString("mode")));
         for (int i = 0; found != null && i < found.length(); i++) {
             JSONObject c = found.optJSONObject(i);
-            if (c == null || "N".equals(c.optString("quality")) || c.optString("name", "").isEmpty()) {
+            int quality = c == null ? -1 : com.moimoi.analysis.Music.qualityIndex(c.optString("quality"));
+            if (c == null || quality < 0) {
                 continue;
             }
+            int root = Math.floorMod(c.optInt("root") + semitones, 12);
+            Integer bass = c.isNull("bass") || !c.has("bass") ? null : Math.floorMod(c.optInt("bass") + semitones, 12);
             JSONObject out = new JSONObject();
             out.put("inicio", r3(timeline.out(c.optDouble("start"))));
             out.put("fin", r3(timeline.out(c.optDouble("end"))));
-            out.put("nombre", c.optString("name"));
+            out.put("nombre", com.moimoi.analysis.Music.chordName(root, quality, bass, flats));
             chords.put(out);
         }
         JSONObject origen = new JSONObject();

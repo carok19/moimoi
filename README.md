@@ -137,8 +137,12 @@ el .zip de tu paquete de voces (o los audios sueltos); la app reconoce cada voz 
 "Verso 1", "1, 2, 3, 4"…, en varios idiomas) y los sonidos de click del paquete. También puedes grabar tus propias
 voces con el micrófono. Al exportar el paquete para Multitrack, marca **Guía**.
 
-Todavía no están en la app del celular (sí en la computadora): links y búsqueda de YouTube, exportar con otra
-velocidad o tono, MP3, y la letra automática. Llegan en las próximas versiones.
+**Otra velocidad o tono al exportar:** si en el reproductor cambias la velocidad o el tono (por ejemplo, bajar un
+tono para quien canta), en *Exportar* marca **Aplicar los cambios actuales**: las pistas, el click, la guía, los
+acordes y la tonalidad del paquete salen con esos cambios, y el nombre del archivo lo dice ("en A, 90%").
+
+Todavía no están en la app del celular (sí en la computadora): links y búsqueda de YouTube, MP3, y la letra
+automática. Llegan en las próximas versiones.
 
 **Usar la computadora desde la app (opcional):** en *Ajustes → Celular o computadora → Usar MoiMoi de la
 computadora* la app se conecta a MoiMoi en una computadora de la **misma red WiFi** (más rápido con tarjeta

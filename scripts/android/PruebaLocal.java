@@ -431,9 +431,51 @@ public class PruebaLocal {
                 "{\"type\":\"multitrack\",\"guide\":true}", 200).getString("id"), 30);
         check(job.getString("status").equals("error") && job.getString("error").contains("voces"), "guía sin voces: " + job);
 
+        // ---- otra velocidad y tono: el paquete (80 %, 2 semitonos arriba) y la mezcla
         job = waitJob(b, call(b, "POST", "/api/songs/" + six.getString("id") + "/exports",
-                "{\"type\":\"multitrack\",\"tempo\":0.8}", 200).getString("id"), 30);
-        check(job.getString("status").equals("error"), "velocidad al exportar todavía no");
+                "{\"type\":\"multitrack\",\"stems\":[\"vocals\",\"drums\"],\"tempo\":0.8,\"semitones\":2}", 200)
+                .getString("id"), 180);
+        check(job.getString("status").equals("done"), "paquete con otra velocidad y tono: " + job);
+        String keyName = analysis.getJSONObject("key").getString("name");
+        String expectedKey = com.moimoi.analysis.Music.keyName(Math.floorMod(analysis.getJSONObject("key").getInt("tonic") + 2, 12),
+                analysis.getJSONObject("key").getString("mode").equals("major"));
+        LocalApi.Download varied = b.resolveDownload(job.getString("downloadUrl"), null);
+        check(varied.name.equals("Artista Prueba - Nuevo (en " + expectedKey + ", 80%).zip"), "nombre con tonalidad y velocidad: " + varied.name);
+        Map<String, byte[]> variedFiles = unzip(varied.file);
+        JSONObject variedManifest = new JSONObject(new String(variedFiles.get("moimoi.json"), "UTF-8"));
+        JSONObject cancion = variedManifest.getJSONObject("cancion");
+        check(cancion.getDouble("velocidad") == 0.8 && cancion.getInt("transposicion") == 2
+                && cancion.getString("tonalidad").equals(expectedKey) && cancion.getString("tonalidadOriginal").equals(keyName),
+                "moimoi.json con la velocidad y la tonalidad nuevas: " + cancion);
+        float[][] slowVoice = readWav(variedFiles.get("Voz.wav"));
+        long expectedSlow = Math.round(six.getDouble("duration") / 0.8 * 44100);
+        check(Math.abs(slowVoice[0].length - expectedSlow) <= 2, "pista al 80 %: " + slowVoice[0].length + " muestras (esperadas " + expectedSlow + ")");
+        double slowPeak = 0;
+        for (float v : slowVoice[0]) {
+            slowPeak = Math.max(slowPeak, Math.abs(v));
+        }
+        check(slowPeak > 0.001 && slowPeak <= 0.9901, "la pista estirada suena y no satura (" + slowPeak + ")");
+        JSONArray variedChords = variedManifest.getJSONArray("acordes");
+        JSONArray originalChords = analysis.getJSONArray("chords");
+        JSONObject firstReal = null;
+        for (int i = 0; i < originalChords.length(); i++) {
+            if (!originalChords.getJSONObject(i).getString("quality").equals("N")) {
+                firstReal = originalChords.getJSONObject(i);
+                break;
+            }
+        }
+        if (firstReal != null && variedChords.length() > 0) {
+            check(Math.abs(variedChords.getJSONObject(0).getDouble("inicio") - firstReal.getDouble("start") / 0.8) < 0.002,
+                    "acordes en el tiempo nuevo");
+        }
+        job = waitJob(b, call(b, "POST", "/api/songs/" + six.getString("id") + "/exports",
+                "{\"type\":\"mix\",\"format\":\"wav\",\"tempo\":1.25,\"semitones\":-3}", 200).getString("id"), 180);
+        check(job.getString("status").equals("done"), "mezcla con otra velocidad y tono: " + job);
+        LocalApi.Download fastMix = b.resolveDownload(job.getString("downloadUrl"), null);
+        float[][] fast = readStem(fastMix.file);
+        long expectedFast = Math.round(six.getDouble("duration") / 1.25 * 44100);
+        check(Math.abs(fast[0].length - expectedFast) <= 2 && fastMix.name.endsWith("125%) (mezcla).wav"),
+                "mezcla al 125 %: " + fast[0].length + " muestras, " + fastMix.name);
         job = waitJob(b, call(b, "POST", "/api/songs/" + six.getString("id") + "/exports",
                 "{\"type\":\"multitrack\"}", 200).getString("id"), 60);
         check(job.getString("status").equals("done") && job.getJSONObject("result").getString("name").endsWith(".zip"), "paquete multitrack");

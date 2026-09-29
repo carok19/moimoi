@@ -35,9 +35,10 @@ const PRE_ROLL = [
 
 export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel, band, onClose }: Props) {
   const toast = useToast()
-  const { settings } = useApp()
-  // En el celular por ahora: WAV, sin cambiar velocidad/tono y sin enviar directo a Multitrack.
+  const { settings, health } = useApp()
+  // En el celular por ahora: WAV y sin enviar directo a Multitrack (se comparte el .zip).
   const standalone = isStandalone()
+  const canStretch = health?.features.stretchExport ?? true
   const stems = song.stems.map((s) => s.id)
   const missing = useMemo(() => stems.filter((s) => !bandCovers(s, band)), [stems, band])
   const hasBeats = Boolean(analysis?.beats.length)
@@ -50,7 +51,7 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
   const [guide, setGuide] = useState(settings.exportGuide)
   const [preRoll, setPreRoll] = useState(hasBeats ? settings.exportPreRollBars : 0)
   const changed = Math.abs(rate - 1) > 0.001 || semitones !== 0
-  const [apply, setApply] = useState(changed && !standalone)
+  const [apply, setApply] = useState(changed && canStretch)
   const [job, setJob] = useState<Job | null>(null)
   const [jobTab, setJobTab] = useState<Tab>('multitrack')
   const [busy, setBusy] = useState(false)
@@ -234,9 +235,7 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
             <span className="track" />
             <span>
               Pista <b>Guía</b>: anuncia cada parte (Verso 1, Coro…) un compás antes
-              {kit && !hasVoices && (standalone
-                ? <span className="tiny muted"> · próximamente en el celular</span>
-                : <span className="tiny"> · <a href="#/ajustes">carga las voces en Ajustes → Voz guía</a></span>)}
+              {kit && !hasVoices && <span className="tiny"> · <a href="#/ajustes">carga las voces en Ajustes → Voz guía</a></span>}
               {hasVoices && activeSet && <span className="tiny muted"> · voces en {activeSet.name}</span>}
             </span>
           </label>
@@ -316,16 +315,16 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
         </>
       )}
 
-      {changed && !standalone && (
+      {changed && canStretch && (
         <label className="toggle">
           <input type="checkbox" checked={apply} onChange={(e) => setApply(e.target.checked)} />
           <span className="track" />
           <span>Aplicar los cambios actuales: <b>{changesText}</b></span>
         </label>
       )}
-      {changed && standalone && (
+      {changed && !canStretch && (
         <div className="tiny muted">
-          En el celular, por ahora se exporta con la velocidad y el tono originales ({changesText} llega en la próxima versión).
+          Se exporta con la velocidad y el tono originales ({changesText} no está disponible aquí).
         </div>
       )}
 

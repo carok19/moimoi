@@ -320,7 +320,7 @@ public final class LocalApi {
         JSONObject features = new JSONObject();
         features.put("youtube", false);
         features.put("lyrics", false);
-        features.put("stretchExport", false);
+        features.put("stretchExport", true);
         features.put("ffmpeg", false);
         features.put("analysis", true);
         features.put("guide", true);
