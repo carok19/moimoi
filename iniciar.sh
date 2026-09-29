@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # MoiMoi: instala todo la primera vez y abre la app en el navegador.
-# Uso:  ./iniciar.sh                    (solo en esta computadora)
-#       ./iniciar.sh --host 0.0.0.0     (también desde celulares/tablets de la misma red)
+# Uso:  ./iniciar.sh                    (también desde celulares/tablets de la misma red WiFi)
+#       ./iniciar.sh --host 127.0.0.1   (solo en esta computadora)
 set -euo pipefail
 cd "$(dirname "$0")"
 

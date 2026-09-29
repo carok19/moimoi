@@ -83,8 +83,14 @@ export async function shareFile(url: string, name: string, onProgress?: (fractio
 export async function saveFile(url: string, name?: string, onProgress?: (fraction: number) => void): Promise<string | null> {
   if (isNativeApp) {
     const fileName = name || decodeURIComponent(url.split('/').pop()?.split('?')[0] || 'moimoi')
-    await nativeDownload(url, 'documents', fileName, onProgress)
-    return `Documentos/MoiMoi/${safeName(fileName)}`
+    try {
+      await nativeDownload(url, 'documents', fileName, onProgress)
+      return `Documentos/MoiMoi/${safeName(fileName)}`
+    } catch {
+      // Algunos Android no dejan escribir en Documentos: se abre "Compartir" (Guardar en Archivos, Drive…).
+      await shareFile(url, fileName, onProgress)
+      return null
+    }
   }
   const a = document.createElement('a')
   a.href = apiUrl(url)

@@ -4,7 +4,8 @@ cd /d "%~dp0"
 title MoiMoi
 
 rem MoiMoi: instala todo la primera vez y abre la app en el navegador.
-rem Para usarlo tambien desde celulares de la misma red:  iniciar.bat --host 0.0.0.0
+rem Tambien se usa desde celulares de la misma red WiFi (ver Ajustes, Celulares y tablets).
+rem Solo en esta computadora:  iniciar.bat --host 127.0.0.1
 
 set "PYTHON="
 where py >nul 2>nul && set "PYTHON=py -3"
@@ -31,7 +32,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if exist ".venv\moimoi-instalado.txt" goto :frontend
+if exist ".venv\moimoi-instalado.txt" goto :check
 echo Instalando MoiMoi. La primera vez tarda varios minutos porque descarga PyTorch...
 "%PY%" -m pip install --upgrade pip wheel
 "%PY%" -c "import torch" >nul 2>nul
@@ -50,15 +51,26 @@ if errorlevel 1 goto :error
 "%PY%" -m pip install -r backend\requirements.txt
 if errorlevel 1 goto :error
 echo ok> ".venv\moimoi-instalado.txt"
+goto :frontend
+
+:check
+rem Si una actualizacion de MoiMoi agrego dependencias nuevas, se instalan.
+"%PY%" -c "import fastapi, demucs, cryptography" >nul 2>nul
+if not errorlevel 1 goto :frontend
+echo Instalando las dependencias nuevas de MoiMoi...
+"%PY%" -m pip install -r backend\requirements.txt
+if errorlevel 1 goto :error
 
 :frontend
-if exist "frontend\dist\index.html" goto :run
+rem La interfaz se vuelve a preparar si cambio algo (por ejemplo al actualizar MoiMoi).
+if not exist "frontend\dist\index.html" goto :build
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=(Get-Item 'frontend\dist\index.html').LastWriteTime; if (Get-ChildItem 'frontend\src','frontend\index.html','frontend\package.json' -Recurse -File | Where-Object { $_.LastWriteTime -gt $d } | Select-Object -First 1) { exit 1 }; exit 0" >nul 2>nul
+if errorlevel 1 goto :build
+goto :run
+
+:build
 where npm >nul 2>nul
-if errorlevel 1 (
-  echo Falta Node.js para preparar la interfaz: https://nodejs.org - version 18 o superior.
-  pause
-  exit /b 1
-)
+if errorlevel 1 goto :nonode
 echo Preparando la interfaz web...
 pushd frontend
 call npm install --no-audit --no-fund
@@ -71,6 +83,12 @@ popd
 cd backend
 "%PY%" -m moimoi %*
 goto :eof
+
+:nonode
+if exist "frontend\dist\index.html" goto :run
+echo Falta Node.js para preparar la interfaz: https://nodejs.org - version 18 o superior.
+pause
+exit /b 1
 
 :errorpop
 popd

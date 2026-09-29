@@ -61,7 +61,8 @@ export function ConnectPage({ onConnected, onCancel }: { onConnected: (url: stri
     setBusy(false)
     if (!ok) {
       setError(`No se encontró MoiMoi en ${url.replace(/^http:\/\//, '')}. Revisa que MoiMoi esté abierto en la computadora, `
-        + 'que "Permitir celulares" esté activado y que los dos estén en la misma red WiFi.')
+        + 'que "Permitir celulares" esté activado y que los dos estén en la misma red WiFi. En Windows, la primera vez '
+        + 'aparece el aviso del Firewall: elige "Permitir".')
       return
     }
     setServerBase(url)
@@ -93,7 +94,8 @@ export function ConnectPage({ onConnected, onCancel }: { onConnected: (url: stri
           </div>
         </div>
         <ol className="small muted steps">
-          <li>En la computadora, abre MoiMoi (<code>iniciar.bat</code> o <code>./iniciar.sh</code>).</li>
+          <li>En la computadora, abre MoiMoi (<code>iniciar.bat</code> o <code>./iniciar.sh</code>). En Windows, si
+            aparece el aviso del Firewall, elige <i>Permitir</i>.</li>
           <li>Conecta el celular a la <b>misma red WiFi</b>.</li>
           <li>Escribe la dirección que aparece en la ventana de MoiMoi o en <i>Ajustes → Celulares</i>.</li>
         </ol>

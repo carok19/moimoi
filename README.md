@@ -5,8 +5,13 @@ deja practicar y tocar encima: mezclador por pista, velocidad y tono en tiempo r
 tonalidad, partes de la canción, metrónomo y loops. Todo corre en tu propia computadora.
 
 Está pensado para bandas y ministerios de alabanza: con **"Tocar con mi banda"** silencias lo que ya tocan
-ustedes y suena solo lo que les falta, y con **Exportar → Multitrack** generas un `.zip` listo para abrir en
-**Multitrack Alabanza** (la app del repo `Daw`, también llamada AI Tracks), con click y marcadores.
+ustedes y suena solo lo que les falta, y con **Exportar → Multitrack** generas un `.zip` listo para
+**Multitrack Alabanza** (la app del repo `Daw`, también llamada AI Tracks) con **click**, **voz guía** que
+anuncia cada parte ("Verso 1", "Coro"…), cuenta inicial y las partes como marcadores. El paquete se envía
+directo a Multitrack Alabanza o se comparte por WhatsApp.
+
+También se usa desde el **celular**: con la [app de Android](#en-el-celular-android) (o el navegador) agregas
+canciones, las escuchas, exportas y compartes; la separación la hace la computadora.
 
 > MoiMoi es un proyecto independiente inspirado en apps como Moises; no está afiliado a ellas.
 
@@ -27,6 +32,9 @@ ustedes y suena solo lo que les falta, y con **Exportar → Multitrack** generas
 | **Instrumentos** | Qué instrumentos suenan, cuánto y en qué partes de la canción. |
 | **Letra** (opcional) | Transcripción sincronizada de la voz con Whisper (`faster-whisper`). |
 | **Exportar** | Pistas sueltas (WAV/MP3/FLAC), la mezcla que estás escuchando, o el paquete para Multitrack. Opcionalmente con la velocidad y el tono aplicados (p. ej. para bajar la canción a la tonalidad del cantante). |
+| **Voz guía y click** | Pista **Guía** con tus voces guía (el paquete que descargaste o grabaciones tuyas): anuncia cada parte un compás antes, cuenta "1, 2, 3, 4" antes de empezar y avisa "Sube tono" donde la canción modula. Click con el sonido que elijas. |
+| **Multitrack Alabanza** | **Enviar a Multitrack Alabanza** abre la canción directo en el programa (misma computadora o red), con las pistas en orden, sus nombres y las partes como marcadores. |
+| **Celular** | App de Android y acceso desde el navegador del celular. **Compartir** el paquete por WhatsApp, Drive, etc. "Compartir → MoiMoi" desde YouTube agrega la canción. |
 | **API** | Otras apps pueden listar canciones, bajar pistas y pedir exportaciones (ver [API](#api)). |
 
 ---
@@ -93,51 +101,117 @@ Todo lo que ajustas (volúmenes, velocidad, tono, loop, nombres de las partes) q
 | [ / ] | Más lento / más rápido (5 %) |
 | − / + | Bajar / subir medio tono |
 
-### Desde el celular o la tablet
+---
 
-Abre MoiMoi con `iniciar.bat --host 0.0.0.0` (Windows) o `./iniciar.sh --host 0.0.0.0` (Mac/Linux). En la
-terminal aparece una dirección como `http://192.168.0.10:4747`: ábrela en el navegador del celular conectado
-a la misma red WiFi. La separación la sigue haciendo la computadora. Los celulares tienen menos memoria: una
-canción de 6 pistas usa unos 65 MB por minuto en el navegador.
+## En el celular (Android)
+
+MoiMoi corre en la computadora (ahí se separan las canciones) y el celular se conecta por la **misma red
+WiFi**. Desde el celular puedes agregar canciones (links o archivos del celular), escuchar y mezclar las
+pistas, cambiar velocidad y tono, exportar y **compartir por WhatsApp**.
+
+**App de Android (recomendada)**
+
+1. Descarga **MoiMoi.apk** en el celular desde la versión
+   [`android`](https://github.com/carok19/moimoi/releases/tag/android) del repositorio (la compila GitHub
+   Actions con cada cambio). Como el repositorio es privado, hay que tener la sesión de GitHub iniciada en el
+   navegador del celular; si no, descárgalo en la computadora y pásalo al celular (WhatsApp, cable o Drive).
+   También está el código QR en *Ajustes → Celulares y tablets*.
+2. Ábrelo e instálalo (Android pide permiso para instalar apps de fuera de Play Store).
+3. Abre MoiMoi en la computadora. En la ventana de MoiMoi (y en *Ajustes → Celulares y tablets*) aparece la
+   dirección de la computadora, por ejemplo `192.168.1.20`: escríbela en la app, o toca *Buscar
+   automáticamente*.
+
+En la app, **Compartir** abre el menú de Android con el `.zip` (WhatsApp, Drive, correo…) y **Guardar en el
+celular** lo deja en *Documentos/MoiMoi*. En YouTube, **Compartir → MoiMoi** abre la app con el link listo
+para separar. Las voces guía se pueden grabar desde el celular.
+
+**Navegador del celular:** también funciona sin instalar nada. Escanea el código QR de *Ajustes → Celulares
+y tablets* (o escribe `https://192.168.1.20:4748`). La primera vez el navegador avisa que la conexión "no es
+privada": toca *Configuración avanzada → Continuar* (el certificado lo creó MoiMoi en tu computadora; hace
+falta HTTPS para el motor de audio). Desde el navegador no se pueden compartir archivos `.zip`: descárgalos y
+compártelos desde tus descargas, o usa la app.
+
+**Si el celular no se conecta:** los dos tienen que estar en la misma red WiFi; en Windows, la primera vez
+que abres MoiMoi aparece el aviso del Firewall: elige **Permitir** (redes privadas). En *Ajustes → Celulares y
+tablets* se puede desactivar el acceso desde otros equipos (por ejemplo en una red pública).
+
+Los celulares tienen menos memoria: una canción de 6 pistas usa unos 65 MB por minuto en el reproductor.
+
+---
+
+## Voz guía
+
+La pista **Guía** anuncia cada parte de la canción ("Intro", "Verso 1", "Coro", "Puente"…) un compás antes,
+y cuenta "1, 2, 3, 4" en los compases que se agregan antes de empezar. Así, al pasar la canción a Multitrack
+Alabanza, la banda escucha la estructura en los auriculares, y las partes quedan como marcadores.
+
+1. En *Ajustes → Voz guía y click*, **Cargar paquete** y elige el `.zip` de voces guía que descargaste (por
+   ejemplo el de secuencias.com) o los audios sueltos. MoiMoi reconoce cada archivo por su nombre, en español
+   o inglés: `Spanish - Coro 2 (Chorus 2).wav`, `01 - Verso.mp3`, `VG_PreCoro.wav`, `uno.wav`, `4.wav`…
+2. Si el paquete trae **varios idiomas** (español, inglés, portugués…), cada uno queda por separado: elige cuál
+   usar. Si trae **sonidos de click** (`Click - Classic-accents.wav`…), aparecen para elegir el sonido del
+   click.
+3. Revisa la lista: se puede escuchar cada voz, cambiarla por otro archivo o **grabarla con el micrófono**.
+   Arriba se avisa si falta alguna importante. Los archivos dañados del `.zip` se saltean y se informan.
+4. Al exportar para Multitrack deja activada la **pista Guía** y elige la **cuenta** (0, 1 o 2 compases).
+
+Qué dice en cada parte: el **nombre de la parte** (se puede cambiar en el reproductor). Por defecto numera los
+versos ("Verso 1", "Verso 2") y no los coros; se cambia en Ajustes. Si escribes una indicación en el nombre,
+también la anuncia antes: "Coro (última vez)", "Puente sube tono", "Verso 2 suave", "Coro todos". Donde la
+canción cambia de tonalidad avisa "Sube tono" (o "Baja tono") si el paquete trae esa voz.
+
+Las voces se guardan en la carpeta de datos de MoiMoi (`voz-guia/`); MoiMoi no las sube a ningún lado.
 
 ---
 
 ## Integración con Multitrack Alabanza (AI Tracks)
 
-MoiMoi y Multitrack Alabanza son programas separados que se conectan con un archivo:
+MoiMoi y Multitrack Alabanza son programas separados que se conectan con un paquete `.zip`:
 
 1. En MoiMoi abre la canción → **Exportar** → pestaña **Multitrack (AI Tracks)**.
 2. Elige las pistas. **"Lo que le falta a mi banda"** marca solo las que tu banda no toca.
-3. Deja activado **Incluir pista de Click** si quieres metrónomo en el multitrack.
+3. Deja activados **Click** y **Guía** y elige la **cuenta** antes de empezar (los valores por defecto se
+   cambian en *Ajustes → Multitrack Alabanza*). **WAV** es la mejor calidad; **MP3** pesa unas 5 veces menos
+   (para WhatsApp), pero los celulares conectados a Multitrack Alabanza solo reproducen WAV.
 4. Si cambiaste el tono o la velocidad, puedes **aplicar los cambios**: por ejemplo, bajar la canción dos
    semitonos para el cantante, y las pistas se exportan ya transportadas.
-5. En Multitrack Alabanza usa **Cargar canción (.zip)** y elige el archivo.
+5. **Crear paquete** y después:
+   - **Enviar a Multitrack Alabanza**: la canción se abre directo en el programa, en una pestaña nueva (si hay
+     una canción sonando, no la interrumpe). Por defecto lo busca en la misma computadora
+     (`http://127.0.0.1:4848`); si está en otra, pon su dirección en *Ajustes → Multitrack Alabanza*.
+   - **Compartir** (WhatsApp…) o **Descargar**, y en Multitrack Alabanza **Cargar canción (.zip)**.
 
-El `.zip` tiene un WAV (16 bits, 44,1 kHz, estéreo) por pista con nombres simples: `Voz.wav`,
-`Bateria.wav`, `Bajo.wav`, `Guitarra.wav`, `Piano.wav`, `Otros.wav` (o `Acompanamiento.wav`) y `Click.wav`,
-todas de la misma duración y sincronizadas. El nombre del zip es el nombre de la canción. Se verificó con el
-importador de Multitrack Alabanza (`src/server/zip.ts`).
+El `.zip` tiene un audio (WAV de 16 bits, 44,1 kHz, estéreo, o MP3) por pista con nombres simples:
+`Click.wav`, `Guia.wav`, `Voz.wav`, `Bateria.wav`, `Bajo.wav`, `Guitarra.wav`, `Piano.wav`, `Otros.wav` (o
+`Acompanamiento.wav`), todas de la misma duración y sincronizadas (con la cuenta inicial, todas empiezan con
+esos compases). El nombre del zip es el nombre de la canción.
 
-Además incluye **`moimoi.json`**, que el importador actual ignora sin problema, con todo lo detectado. Sirve para
-que Multitrack Alabanza (u otra app) importe también los marcadores y datos de la canción:
+Multitrack Alabanza (rama `claude/moises-ai-track-separation-pdnkil` del repo `Daw`) lee **`moimoi.json`**:
+el orden y los nombres de las pistas, los volúmenes y **las partes como marcadores**. Las versiones
+anteriores lo ignoran sin problema y cargan una pista por archivo. El archivo tiene todo lo detectado:
 
 ```json
 {
   "formato": "moimoi-multitrack",
   "version": 1,
-  "cancion": { "titulo": "…", "artista": "…", "duracionMs": 245000, "bpm": 72.0, "compas": 4,
+  "cancion": { "titulo": "…", "artista": "…", "duracionMs": 247450, "bpm": 72.0, "compas": 4,
                "tonalidad": "A", "tonalidadNombre": "La mayor", "tonalidadOriginal": "G",
-               "transposicion": 2, "velocidad": 1.0 },
-  "pistas": [ { "archivo": "Voz.wav", "nombre": "Voz", "instrumento": "vocals",
-                "volumen": 80, "pan": 0, "mute": false, "solo": false } ],
-  "marcadores": [ { "nombre": "Verso 1", "tiempoMs": 10100, "color": "#4fa3ff" } ],
-  "acordes": [ { "inicio": 10.1, "fin": 12.5, "nombre": "A" } ],
+               "transposicion": 2, "velocidad": 1.0, "cuentaInicialMs": 2450 },
+  "pistas": [ { "archivo": "Click.wav", "nombre": "Click", "instrumento": "click",
+                "volumen": 70, "pan": 0, "mute": false, "solo": false },
+              { "archivo": "Guia.wav", "nombre": "Guía", "instrumento": "guia", "volumen": 80, … },
+              { "archivo": "Voz.wav", "nombre": "Voz", "instrumento": "vocals", "volumen": 80, … } ],
+  "marcadores": [ { "nombre": "Intro", "tiempoMs": 0, "color": "#8e9aaf" },
+                  { "nombre": "Verso 1", "tiempoMs": 12550, "color": "#4fa3ff" } ],
+  "acordes": [ { "inicio": 12.55, "fin": 14.95, "nombre": "A" } ],
+  "guia": [ { "voz": "n1", "parte": "cuenta", "tiempoMs": 50 },
+            { "voz": "verso1", "parte": "Verso 1", "tiempoMs": 9220 } ],
   "origen": { "app": "MoiMoi", "version": "1.0.0", "cancionId": "…", "url": "…" }
 }
 ```
 
 `pistas` y `marcadores` usan los mismos campos que el modelo de datos de Multitrack Alabanza (`Pista` y
-`Marcador` en `src/shared/types.ts`), así que importarlos es directo.
+`Marcador` en `src/shared/types.ts`). Los tiempos ya incluyen la cuenta inicial (`cuentaInicialMs`).
 
 ---
 
@@ -155,8 +229,13 @@ interactiva está en <http://127.0.0.1:4747/docs>.
 | `GET /api/songs/{id}/analysis` | Pulsos, compases, tonalidad, acordes, secciones e instrumentos |
 | `GET /api/songs/{id}/audio/{pista}.flac` | Pista para reproducir (acepta rangos) |
 | `GET /api/songs/{id}/download/{pista}.{wav\|mp3\|flac}` | Descargar una pista |
-| `POST /api/songs/{id}/exports` | Crear una exportación: `{"type": "multitrack" \| "stems" \| "mix", "stems": [...], "click": true, "tempo": 1.0, "semitones": 0}` |
+| `POST /api/songs/{id}/exports` | Crear una exportación: `{"type": "multitrack" \| "stems" \| "mix", "stems": [...], "click": true, "clickSound": "classic", "guide": true, "preRollBars": 1, "tempo": 1.0, "semitones": 0}` |
 | `GET /api/jobs/{id}` · `GET /api/jobs/{id}/download` | Estado y descarga de una exportación |
+| `POST /api/jobs/{id}/enviar` | Enviar el paquete a Multitrack Alabanza (`{"url": "…"}` opcional) |
+| `GET /api/multitrack` | ¿Está abierto Multitrack Alabanza? |
+| `GET /api/guia` · `POST /api/guia` | Voces guía cargadas · cargar un paquete (multipart: `files`, y `cue`/`set` para una grabación) |
+| `PUT /api/guia/activo` · `PUT /api/guia/{archivo}` | Elegir idioma · asignar un archivo a una voz (`{"cue": "coro"}`) |
+| `GET /api/red` | Direcciones para abrir MoiMoi desde celulares |
 | `POST /api/songs/{id}/retry` | Volver a separar (opcional: otro `preset` o `quality`) |
 | `DELETE /api/songs/{id}` | Borrar |
 | `GET /api/search?q=…` | Buscar en YouTube |
@@ -172,7 +251,8 @@ Variables de entorno opcionales:
 | Variable | Por defecto | Para qué |
 |---|---|---|
 | `MOIMOI_DATA_DIR` | `~/MoiMoi` | Dónde se guardan canciones, base de datos, exportaciones y modelos |
-| `MOIMOI_HOST` / `MOIMOI_PORT` | `127.0.0.1` / `4747` | Dirección y puerto (`0.0.0.0` para la red local) |
+| `MOIMOI_HOST` / `MOIMOI_PORT` | `0.0.0.0` / `4747` | Dirección y puerto. `0.0.0.0` = también desde celulares de la red (si está permitido en Ajustes); `127.0.0.1` = solo esta computadora |
+| `MOIMOI_HTTPS_PORT` | `4748` | HTTPS para el navegador del celular (`0` lo desactiva) |
 | `MOIMOI_DEVICE` | `auto` | `auto`, `cpu`, `cuda` o `mps` (GPU de Apple, experimental) |
 | `MOIMOI_MODEL_REPO` | — | Carpeta con modelos de Demucs ya descargados |
 | `MOIMOI_MAX_DURATION_MIN` | `20` | Duración máxima por canción |
@@ -195,7 +275,9 @@ backend/            API (FastAPI), cola de trabajos, separación, análisis y ex
   tests/            pruebas (con canciones sintéticas y un motor de separación de prueba)
 frontend/           interfaz web (React + TypeScript + Vite)
   src/audio/        motor de audio multipista (Signalsmith Stretch en AudioWorklet)
+  android/          app de Android (Capacitor): la misma interfaz, conectada a la computadora
 scripts/            prueba de la interfaz en un navegador
+.github/workflows/  compilación del APK en GitHub Actions
 ```
 
 ```bash
@@ -207,9 +289,16 @@ cd backend && ../.venv/bin/python -m pytest
 cd frontend && npm install && npm run dev
 
 # Prueba de punta a punta en Chromium (requiere Playwright: npm i -g playwright)
-.venv/bin/python backend/tests/e2e_server.py --port 4799 --data /tmp/moimoi-e2e --wav /tmp/demo.wav &
-NODE_PATH="$(npm root -g)" node scripts/prueba_navegador.cjs /tmp/demo.wav
+.venv/bin/python backend/tests/e2e_server.py --port 4799 --data /tmp/moimoi-e2e --wav /tmp/demo.wav --pack /tmp/voces.zip &
+NODE_PATH="$(npm root -g)" node scripts/prueba_navegador.cjs /tmp/demo.wav /tmp/voces.zip
+
+# App de Android (hace falta Android Studio o el SDK de Android y Java 21)
+cd frontend && npm run build && npx cap sync android
+cd android && ./gradlew assembleDebug      # → app/build/outputs/apk/debug/app-debug.apk
 ```
+
+La app de Android usa la clave de prueba `frontend/android/app/moimoi-debug.keystore` (no es secreta): así
+cada APK nuevo se instala encima del anterior. Para publicar en Play Store haría falta una clave propia.
 
 Cómo funciona la reproducción: cada pista va a un nodo de
 [Signalsmith Stretch](https://signalsmith-audio.co.uk/code/stretch/) (WASM en un AudioWorklet) y todos
@@ -234,6 +323,7 @@ mitad de RAM.
 ## Licencias de terceros
 
 Demucs (MIT), PyTorch (BSD), Signalsmith Stretch (MIT), yt-dlp (Unlicense), librosa (ISC), FastAPI (MIT),
-React (MIT), Lucide (ISC), FFmpeg (LGPL/GPL, vía imageio-ffmpeg), lameenc (LGPL) y pedalboard (GPL-3.0,
+React (MIT), Lucide (ISC), Capacitor (MIT), qrcode-generator (MIT), cryptography (Apache-2.0/BSD), FFmpeg
+(LGPL/GPL, vía imageio-ffmpeg), lameenc (LGPL) y pedalboard (GPL-3.0,
 incluye Rubber Band; se usa para exportar con otra velocidad o tono). Si distribuyes MoiMoi, respeta esas
 licencias.
