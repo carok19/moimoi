@@ -138,7 +138,7 @@ export function LibraryPage() {
           </div>
         </div>
         {songs && songs.length > 3 && (
-          <div style={{ position: 'relative', width: 280 }}>
+          <div className="library-filter">
             <Search size={16} style={{ position: 'absolute', left: 12, top: 13, color: 'var(--text-3)' }} />
             <input className="input" style={{ paddingLeft: 36 }} placeholder="Filtrar canciones" value={filter}
               onChange={(e) => setFilter(e.target.value)} aria-label="Filtrar canciones" />
@@ -149,7 +149,7 @@ export function LibraryPage() {
         <div className="empty">
           <h2 style={{ marginBottom: 6 }}>Todavía no hay canciones</h2>
           {isStandalone()
-            ? 'Elige una canción del celular: MoiMoi separa la voz, la batería, el bajo, la guitarra, el piano y lo demás, y la puedes escuchar, mezclar y compartir.'
+            ? 'Elige una canción del celular: MoiMoi separa la voz, la batería, el bajo, la guitarra, el piano y lo demás, y detecta tempo, tonalidad, acordes y partes. Después la puedes practicar, mezclar y compartir.'
             : 'Pega un link de YouTube o sube un archivo: MoiMoi separa la voz, la batería, el bajo, la guitarra, el piano y lo demás, y detecta tempo, tonalidad, acordes y partes de la canción.'}
         </div>
       )}

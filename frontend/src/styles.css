@@ -156,7 +156,8 @@ input[type='range']::-moz-range-thumb { width: 15px; height: 15px; border-radius
 .toggle input:checked + .track::after { transform: translateX(16px); }
 
 /* ---- biblioteca ---- */
-.library-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.library-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 16px; margin-bottom: 18px; }
+.library-filter { position: relative; width: min(280px, 100%); }
 .add-card { padding: 20px; margin-bottom: 30px; background: linear-gradient(180deg, rgba(139,92,246,0.10), rgba(23,26,33,0.4) 60%), var(--panel); }
 .add-tabs { margin-bottom: 16px; }
 .add-row { display: flex; gap: 10px; }
@@ -461,6 +462,7 @@ details summary { cursor: pointer; }
 
   /* biblioteca: tarjetas horizontales para ver más canciones sin bajar tanto */
   .songs { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .library-filter { width: 100%; }
   .song-card { flex-direction: row; align-items: stretch; }
   .song-card.clickable:hover { transform: none; }
   .cover { width: 92px; min-height: 92px; aspect-ratio: auto; flex: none; font-size: 24px; border-radius: calc(var(--radius) - 1px) 0 0 calc(var(--radius) - 1px); }
