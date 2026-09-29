@@ -121,7 +121,10 @@ def test_two_stem_and_stems_zip(client, song_data):
     job = wait_job(client, client.post(f"/api/songs/{song['id']}/exports",
                                        json={"type": "stems", "format": "mp3"}).json()["id"])
     assert job["status"] == "done", job
-    with zipfile.ZipFile(io.BytesIO(client.get(job["downloadUrl"]).content)) as zf:
+    response = client.get(job["downloadUrl"])
+    # Las pistas sueltas no se llaman como el paquete para Multitrack (ese usa el nombre de la canción).
+    assert download_name(response) == "Cancion de prueba demo (pistas).zip"
+    with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
         assert sorted(zf.namelist()) == ["Acompanamiento.mp3", "Voz.mp3", "moimoi.json"]
 
 
