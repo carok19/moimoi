@@ -50,6 +50,8 @@ public class PruebaLocal {
         final File model;
         final int threads;
         volatile int workingChanges = 0;
+        /** Carpeta con lo que la app trae adentro (recursos/ del repositorio); null = nada. */
+        File bundled;
 
         DesktopPlatform(File root, File model, int threads) {
             data = new File(root, "datos");
@@ -123,6 +125,11 @@ public class PruebaLocal {
 
         public String engineDetail() {
             return "Demucs 6 pistas (prueba)";
+        }
+
+        public InputStream openBundled(String path) throws IOException {
+            File f = bundled == null ? null : new File(bundled, path);
+            return f != null && f.isFile() ? new FileInputStream(f) : null;
         }
     }
 
@@ -540,9 +547,114 @@ public class PruebaLocal {
         } catch (ApiException e) {
             check(e.status == 400, "pdf rechazado con 400");
         }
+        // ---- voces guía y sonidos de click que trae la app (recursos/voz-guia)
+        File recursos = new File("recursos");
+        if (new File(recursos, "voz-guia/kit.json").isFile()) {
+            probarIncluidas(model, threads, recursos, wav);
+        } else {
+            System.out.println("(no está recursos/voz-guia: no se prueban las voces incluidas)");
+        }
         System.out.printf("OK: %d comprobaciones en %.1f s%n", checks, (System.currentTimeMillis() - t0) / 1000.0);
         deleteTree(root);
         System.exit(0);
+    }
+
+    static java.util.Set<String> ids(JSONArray list, String field) throws Exception {
+        java.util.Set<String> out = new java.util.TreeSet<>();
+        for (int i = 0; i < list.length(); i++) {
+            Object item = list.get(i);
+            out.add(item instanceof JSONObject ? ((JSONObject) item).getString(field) : String.valueOf(item));
+        }
+        return out;
+    }
+
+    static int filesIn(LocalBackend b, String set) throws Exception {
+        return call(b, "GET", "/api/guia?set=" + set, null, 200).getJSONArray("files").length();
+    }
+
+    static void probarIncluidas(File model, int threads, File recursos, byte[] wav) throws Exception {
+        java.util.Set<String> todos = new java.util.TreeSet<>(java.util.Arrays.asList("en-f", "es", "fr", "pt"));
+        // 1) Alguien que ya tenía su propio paquete en español (app anterior, sin voces incluidas).
+        File root = Files.createTempDirectory("moimoi-incluidas").toFile();
+        LocalBackend before = LocalBackend.create(new DesktopPlatform(root, model, threads));
+        File pack = new File(root, "Mis voces.zip");
+        try (java.util.zip.ZipOutputStream zout = new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(pack))) {
+            for (String entry : new String[] {"Spanish - Intro.wav", "Spanish - Coro.wav"}) {
+                zout.putNextEntry(new ZipEntry(entry));
+                zout.write(testWav(0.7, 44100, 1, entry.hashCode()));
+                zout.closeEntry();
+            }
+        }
+        before.importGuide(java.util.Arrays.asList(new com.moimoi.local.Guide.Upload(pack.getName(), pack)), null, null);
+        before.stop();
+
+        // 2) Se actualiza la app: se agregan los idiomas incluidos, pero su español queda como estaba.
+        DesktopPlatform platform = new DesktopPlatform(root, model, threads);
+        platform.bundled = recursos;
+        LocalBackend b = LocalBackend.create(platform);
+        JSONObject kit = call(b, "GET", "/api/guia", null, 200);
+        check(ids(kit.getJSONArray("sets"), "id").equals(todos), "idiomas incluidos agregados: " + ids(kit.getJSONArray("sets"), "id"));
+        check(ids(kit.getJSONArray("included"), "").equals(new java.util.TreeSet<>(java.util.Arrays.asList("en-f", "fr", "pt"))),
+                "el español propio no cuenta como incluido: " + kit.getJSONArray("included"));
+        check(kit.getString("active").equals("es") && filesIn(b, "es") == 2, "su español sigue igual (" + filesIn(b, "es") + " voces)");
+        check(kit.getJSONArray("clicks").length() == 8, "8 sonidos de click incluidos: " + ids(kit.getJSONArray("clicks"), "id"));
+
+        // 3) Al reabrir no se duplica nada.
+        int fr = filesIn(b, "fr"), en = filesIn(b, "en-f");
+        b.stop();
+        b = LocalBackend.create(platform);
+        check(filesIn(b, "fr") == fr && filesIn(b, "en-f") == en && fr > 40, "reabrir no duplica las voces (" + fr + ", " + en + ")");
+
+        // 4) Si borra un idioma incluido no vuelve solo; "Restaurar voces incluidas" lo trae de nuevo.
+        call(b, "DELETE", "/api/guia?set=fr", null, 200);
+        b.stop();
+        b = LocalBackend.create(platform);
+        check(!ids(call(b, "GET", "/api/guia", null, 200).getJSONArray("sets"), "id").contains("fr"), "lo borrado no vuelve solo");
+        JSONObject restored = call(b, "POST", "/api/guia/incluidas", null, 200);
+        check(ids(restored.getJSONArray("sets"), "id").contains("fr") && filesIn(b, "fr") == fr, "restaurar las voces incluidas");
+        check(filesIn(b, "es") == 2, "restaurar no toca su español");
+        b.stop();
+        deleteTree(root);
+
+        // 5) Un celular nuevo: todo incluido, español en uso, click "Classic" y la Guía en el paquete.
+        File root2 = Files.createTempDirectory("moimoi-incluidas").toFile();
+        DesktopPlatform fresh = new DesktopPlatform(root2, model, threads);
+        fresh.bundled = recursos;
+        LocalBackend nuevo = LocalBackend.create(fresh);
+        JSONObject kit2 = call(nuevo, "GET", "/api/guia", null, 200);
+        check(ids(kit2.getJSONArray("included"), "").equals(todos) && kit2.getString("active").equals("es") && kit2.getInt("count") >= 30,
+                "celular nuevo con las voces incluidas: " + kit2.getInt("count") + " en español");
+        JSONObject settings = call(nuevo, "GET", "/api/settings", null, 200);
+        check(settings.getString("exportClickSound").equals("classic") && settings.getBoolean("exportGuide"), "click Classic y Guía por defecto");
+        JSONObject song = nuevo.importFile(new ByteArrayInputStream(wav), "incluidas.wav", "audio/wav", "2stems", null);
+        waitSong(nuevo, song.getString("id"), "ready", 300);
+        JSONObject job = waitJob(nuevo, call(nuevo, "POST", "/api/songs/" + song.getString("id") + "/exports",
+                "{\"type\":\"multitrack\",\"guide\":true,\"click\":true,\"clickSound\":\"classic\"}", 200).getString("id"), 120);
+        JSONObject analysis = call(nuevo, "GET", "/api/songs/" + song.getString("id") + "/analysis", null, 200);
+        // Click y Guía para el reproductor.
+        JSONObject playerGuide = call(nuevo, "GET", "/api/songs/" + song.getString("id") + "/guia", null, 200);
+        System.out.println("guía del reproductor: " + playerGuide.getJSONArray("placements"));
+        check(playerGuide.getJSONObject("voices").has("n1") && playerGuide.getJSONObject("voices").has("n4"),
+                "voces de la cuenta para el reproductor");
+        check(playerGuide.getJSONObject("click").has("accent") && playerGuide.getJSONObject("click").has("beat")
+                && playerGuide.getString("clickName").equals("Classic") && playerGuide.getString("voiceSet").equals("Español"),
+                "click Classic y voces en español para el reproductor: " + playerGuide.getJSONObject("click"));
+        for (int i = 0; i < playerGuide.getJSONArray("placements").length(); i++) {
+            String cue = playerGuide.getJSONArray("placements").getJSONObject(i).getString("cue");
+            check(playerGuide.getJSONObject("voices").has(cue), "cada voz de la guía tiene su audio: " + cue);
+        }
+        if (analysis.getJSONArray("beats").length() > 0) {
+            check(job.getString("status").equals("done"), "paquete con las voces incluidas: " + job);
+            Map<String, byte[]> files = unzip(nuevo.resolveDownload(job.getString("downloadUrl"), null).file);
+            check(files.containsKey("Guia.wav") && files.containsKey("Click.wav"), "Guía y Click con lo incluido: " + files.keySet());
+            JSONObject manifest = new JSONObject(new String(files.get("moimoi.json"), "UTF-8"));
+            System.out.println("guía con las voces incluidas: " + manifest.getJSONArray("guia"));
+            check(manifest.getJSONArray("guia").length() > 0, "la Guía anuncia algo");
+        } else {
+            check(job.getString("status").equals("error"), "sin pulso no hay click: " + job);
+        }
+        nuevo.stop();
+        deleteTree(root2);
     }
 
     static byte[] silentWav(double seconds) throws IOException {

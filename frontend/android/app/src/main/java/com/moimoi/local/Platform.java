@@ -3,6 +3,7 @@ package com.moimoi.local;
 import com.moimoi.engine.DemucsSeparator;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Map;
 
 /** Lo que el "servidor" del celular necesita del sistema (Android o, en las pruebas, la computadora). */
@@ -55,4 +56,20 @@ public interface Platform {
 
     /** Descripción del motor para "health" (p. ej. "Demucs 6 pistas · 4 núcleos"). */
     String engineDetail();
+
+    /**
+     * Un archivo que viene dentro de la app (en Android, en assets/), por ejemplo las voces guía
+     * incluidas ("voz-guia/kit.json"); null si no está.
+     */
+    default InputStream openBundled(String path) throws IOException {
+        return null;
+    }
+
+    /**
+     * Qué tan caliente está el equipo: 0 = normal … 4 o más = muy caliente (en Android, el estado
+     * térmico del sistema); -1 = no importa (la computadora de pruebas: separa sin pausas).
+     */
+    default int thermalLevel() {
+        return -1;
+    }
 }

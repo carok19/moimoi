@@ -10,6 +10,7 @@ on:
   push:
     paths:
       - 'frontend/**'
+      - 'recursos/**'
       - 'scripts/android/**'
       - '.github/workflows/android.yml'
   workflow_dispatch:

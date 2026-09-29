@@ -36,6 +36,13 @@ android {
         // El modelo de separación se lee directo del APK (mapeado en memoria): va sin comprimir.
         noCompress 'onnx'
     }
+    sourceSets {
+        main {
+            // Voces guía y sonidos de click que trae la app (recursos/voz-guia del repositorio): la
+            // app los instala sola la primera vez, sin que el usuario tenga que cargar nada.
+            assets.srcDirs += ['../../../recursos']
+        }
+    }
     packaging {
         // Las bibliotecas nativas (ONNX Runtime) van comprimidas: el APK se descarga más rápido.
         jniLibs {

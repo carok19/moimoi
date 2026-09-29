@@ -223,18 +223,15 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
       {tab === 'multitrack' && (
         <>
           <p className="small muted" style={{ margin: 0 }}>
-            Un <b>.zip</b> listo para <b>Multitrack Alabanza</b>: una pista por instrumento, el <b>Click</b>, la
-            <b> Guía</b> (voz que anuncia cada parte) y las partes de la canción como marcadores.{' '}
-            {standalone
-              ? <>Compártelo por WhatsApp o guárdalo en el celular, y en Multitrack Alabanza ábrelo con <i>Cargar canción (.zip)</i>.</>
-              : <>Se envía directo, se comparte por WhatsApp o se abre con <i>Cargar canción (.zip)</i>.</>}
+            Un <b>.zip</b> para <b>Multitrack Alabanza</b> con cada instrumento, el Click, la Guía y las partes de la canción.
+            {standalone ? <> Ábrelo en Multitrack con <i>Cargar canción (.zip)</i>.</> : <> Se envía directo o se abre con <i>Cargar canción (.zip)</i>.</>}
           </p>
           {stemPicker}
           <label className="toggle">
             <input type="checkbox" checked={click} disabled={!hasBeats} onChange={(e) => setClick(e.target.checked)} />
             <span className="track" />
             <span>
-              Pista de <b>Click</b> (metrónomo sobre el pulso)
+              Pista de <b>Click</b>
               <span className="tiny muted"> · sonido {clickStyle ? clickStyle.name : 'MoiMoi'}</span>
             </span>
           </label>
@@ -242,13 +239,13 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
             <input type="checkbox" checked={guide && hasVoices} disabled={!hasVoices} onChange={(e) => setGuide(e.target.checked)} />
             <span className="track" />
             <span>
-              Pista <b>Guía</b>: anuncia cada parte (Verso 1, Coro…) un compás antes
-              {kit && !hasVoices && <span className="tiny"> · <a href="#/ajustes">carga las voces en Ajustes → Voz guía</a></span>}
+              Pista <b>Guía</b> (anuncia cada parte)
+              {kit && !hasVoices && <span className="tiny"> · <a href="#/ajustes">elige las voces en Ajustes</a></span>}
               {hasVoices && activeSet && <span className="tiny muted"> · voces en {activeSet.name}</span>}
             </span>
           </label>
           <div className="row wrap">
-            <span className="grow small">Cuenta antes de empezar {preRoll > 0 && guide && hasVoices ? '(la Guía cuenta "1, 2, 3, 4")' : ''}</span>
+            <span className="grow small">Cuenta al empezar</span>
             <div className="segmented">
               {PRE_ROLL.map((option) => (
                 <button key={option.value} className={preRoll === option.value ? 'active' : ''} disabled={!hasBeats && option.value > 0}
@@ -305,7 +302,7 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
       {tab === 'mix' && (
         <>
           <p className="small muted" style={{ margin: 0 }}>
-            Un solo archivo con la mezcla que estás escuchando (volumen, paneo, mute y solo de cada pista).
+            Un solo archivo con la mezcla que estás escuchando.
           </p>
           <div className="row">
             <span className="small muted grow">Formato</span>
@@ -327,7 +324,7 @@ export function ExportDialog({ song, analysis, mixer, rate, semitones, keyLabel,
         <label className="toggle">
           <input type="checkbox" checked={apply} onChange={(e) => setApply(e.target.checked)} />
           <span className="track" />
-          <span>Aplicar los cambios actuales: <b>{changesText}</b></span>
+          <span>Exportar con <b>{changesText}</b></span>
         </label>
       )}
       {changed && !canStretch && (

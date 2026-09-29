@@ -48,6 +48,8 @@ class Config:
     torch_threads: int | None = None
     #: Arrancar el procesador de trabajos en segundo plano (los tests lo apagan).
     start_worker: bool = True
+    #: Voces guía y sonidos de click incluidos (kit.json + audio/), se instalan solos; None = ninguno.
+    guide_bundle: Path | None = None
 
     @property
     def songs_dir(self) -> Path:
@@ -84,4 +86,5 @@ def load_config() -> Config:
         open_browser=_env_bool("MOIMOI_OPEN_BROWSER", True),
         max_duration_s=float(os.environ.get("MOIMOI_MAX_DURATION_MIN", "20")) * 60,
         torch_threads=int(threads) if threads else None,
+        guide_bundle=_env_path("MOIMOI_VOCES_INCLUIDAS") or (REPO_DIR / "recursos" / "voz-guia"),
     )

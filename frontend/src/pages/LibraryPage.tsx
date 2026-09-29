@@ -11,20 +11,9 @@ import { hashParams, navigate } from '../hooks/useHashRoute'
 
 const PROCESSING = new Set(['queued', 'downloading', 'separating', 'analyzing'])
 
-function EngineBanner({ empty }: { empty: boolean }) {
+function EngineBanner() {
   const { health, offline } = useApp()
-  if (isStandalone()) {
-    if (!empty) return null
-    return (
-      <div className="banner info small">
-        <div>
-          <b>Todo se hace en este celular</b>, sin computadora ni internet: elige una canción y MoiMoi separa la voz,
-          la batería, el bajo, la guitarra, el piano y lo demás. Cada canción tarda unos minutos (depende del celular);
-          puedes minimizar la app mientras tanto. También puedes compartir audios con MoiMoi desde WhatsApp u otras apps.
-        </div>
-      </div>
-    )
-  }
+  if (isStandalone()) return null
   if (offline && isNativeApp) {
     return (
       <div className="banner err">
@@ -127,7 +116,7 @@ export function LibraryPage() {
 
   return (
     <main className="page">
-      <EngineBanner empty={songs !== null && songs.length === 0} />
+      <EngineBanner />
       <AddSongPanel onAdded={() => void refresh()} sharedLink={sharedLink} />
       <div className="library-head">
         <div>
@@ -149,7 +138,7 @@ export function LibraryPage() {
         <div className="empty">
           <h2 style={{ marginBottom: 6 }}>Todavía no hay canciones</h2>
           {isStandalone()
-            ? 'Elige una canción del celular: MoiMoi separa la voz, la batería, el bajo, la guitarra, el piano y lo demás, y detecta tempo, tonalidad, acordes y partes. Después la puedes practicar, mezclar y compartir.'
+            ? 'Elige una canción: MoiMoi separa cada instrumento y encuentra el tempo, la tonalidad, los acordes y las partes. Tarda unos minutos y puedes usar otras apps mientras tanto.'
             : 'Pega un link de YouTube o sube un archivo: MoiMoi separa la voz, la batería, el bajo, la guitarra, el piano y lo demás, y detecta tempo, tonalidad, acordes y partes de la canción.'}
         </div>
       )}

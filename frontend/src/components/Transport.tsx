@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import {
-  ChevronDown, ChevronUp, Minus, Pause, Play, Plus, Repeat, RotateCcw, SkipBack, SlidersHorizontal, Timer, Undo2,
-  Volume2, Redo2,
+  ChevronDown, ChevronUp, Megaphone, Minus, Pause, Play, Plus, Redo2, Repeat, RotateCcw, SkipBack, SlidersHorizontal, Timer,
+  Undo2, Volume2,
 } from 'lucide-react'
 import type { StemPlayer } from '../audio/StemPlayer'
 import { useFrame } from '../hooks/useFrame'
@@ -18,6 +18,7 @@ interface Props {
   bpm: number | null
   loopOn: boolean
   metronome: boolean
+  guide: boolean
   metronomeVolume: number
   countIn: number
   masterVolume: number
@@ -30,6 +31,7 @@ interface Props {
   onSemitones: (semitones: number) => void
   onLoop: () => void
   onMetronome: () => void
+  onGuide: () => void
   onMetronomeVolume: (v: number) => void
   onCountIn: (bars: number) => void
   onMasterVolume: (v: number) => void
@@ -58,18 +60,21 @@ export function Transport(p: Props) {
               title="Cuenta antes de empezar (C)">
               <Timer size={18} />Cuenta{p.countIn > 1 ? ` ×${p.countIn}` : ''}
             </button>
-            <button className={`tool${p.metronome ? ' on' : ''}`} onClick={p.onMetronome} title="Metrónomo (M)">
-              <MetronomeIcon />Metrónomo
+            <button className={`tool${p.metronome ? ' on' : ''}`} onClick={p.onMetronome} title="Click (M)" aria-pressed={p.metronome}>
+              <MetronomeIcon />Click
+            </button>
+            <button className={`tool${p.guide ? ' on' : ''}`} onClick={p.onGuide} title="Guía: anuncia las partes (G)" aria-pressed={p.guide}>
+              <Megaphone size={18} />Guía
             </button>
             <Menu
               align="left"
               button={(open) => (
-                <button className="tool" onClick={open} title="Opciones del metrónomo"><ChevronDown size={18} />Opciones</button>
+                <button className="tool" onClick={open} title="Volumen del click y compases de cuenta"><ChevronDown size={18} />Opciones</button>
               )}
             >
               {() => (
                 <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 12, minWidth: 230 }}>
-                  <label className="small">Volumen del metrónomo
+                  <label className="small">Volumen del click
                     <input type="range" min={0} max={150} value={Math.round(p.metronomeVolume * 100)}
                       onChange={(e) => p.onMetronomeVolume(Number(e.target.value) / 100)} />
                   </label>
@@ -90,17 +95,17 @@ export function Transport(p: Props) {
 
         <div className="center">
           <div className="buttons">
-            <button className="btn ghost icon" onClick={p.onRestart} title="Al principio (Inicio)"><SkipBack size={18} /></button>
+            <button className="btn ghost icon restart" onClick={p.onRestart} title="Al principio (Inicio)" aria-label="Al principio"><SkipBack size={18} /></button>
             <button className="btn ghost icon" onClick={() => p.onSkip(-5)} title="5 s atrás (←)"><Undo2 size={18} /></button>
             <button className="play" onClick={p.onToggle} aria-label={p.playing ? 'Pausa' : 'Reproducir'} title="Reproducir / pausa (espacio)">
               {p.playing ? <Pause size={26} fill="#111" /> : <Play size={26} fill="#111" style={{ marginLeft: 3 }} />}
             </button>
             <button className="btn ghost icon" onClick={() => p.onSkip(5)} title="5 s adelante (→)"><Redo2 size={18} /></button>
-            <div className="time" style={{ minWidth: 92 }}>
+            <div className="time">
               <span ref={time}>0:00</span> / {formatTime(p.player.duration)}
             </div>
             <button className="btn icon more-toggle" onClick={() => setExpanded((v) => !v)}
-              aria-expanded={expanded} aria-label="Velocidad, tono, loop y metrónomo">
+              aria-expanded={expanded} aria-label="Velocidad, tono, loop, click y guía">
               {expanded ? <ChevronDown size={18} /> : <><SlidersHorizontal size={16} /><ChevronUp size={12} /></>}
             </button>
           </div>

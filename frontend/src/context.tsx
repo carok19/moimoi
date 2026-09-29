@@ -14,7 +14,7 @@ export const DEFAULT_SETTINGS: Settings = {
   exportClick: true,
   exportGuide: true,
   exportPreRollBars: 1,
-  exportClickSound: 'moimoi',
+  exportClickSound: 'classic',
   guideNumbering: 'verses',
   guideKeyChanges: true,
   lanAccess: true,

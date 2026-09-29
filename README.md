@@ -33,7 +33,7 @@ prefieres, la app también puede usar MoiMoi de la computadora.
 | **Instrumentos** | Qué instrumentos suenan, cuánto y en qué partes de la canción. |
 | **Letra** (opcional) | Transcripción sincronizada de la voz con Whisper (`faster-whisper`). |
 | **Exportar** | Pistas sueltas (WAV/MP3/FLAC), la mezcla que estás escuchando, o el paquete para Multitrack. Opcionalmente con la velocidad y el tono aplicados (p. ej. para bajar la canción a la tonalidad del cantante). |
-| **Voz guía y click** | Pista **Guía** con tus voces guía (el paquete que descargaste o grabaciones tuyas): anuncia cada parte un compás antes, cuenta "1, 2, 3, 4" antes de empezar y avisa "Sube tono" donde la canción modula. Click con el sonido que elijas. |
+| **Voz guía y click** | Voces guía y sonidos de click **incluidos** (o los tuyos): la **Guía** anuncia cada parte un compás antes, cuenta "1, 2, 3, 4" antes de empezar y avisa "Sube tono" donde la canción modula. Se escuchan en el reproductor y van como pistas en el paquete para Multitrack. |
 | **Multitrack Alabanza** | **Enviar a Multitrack Alabanza** abre la canción directo en el programa (misma computadora o red), con las pistas en orden, sus nombres y las partes como marcadores. |
 | **Celular** | App de Android que **separa en el mismo celular** (sin computadora ni internet), o conectada a la computadora; también desde el navegador del celular. **Compartir** pistas y paquetes por WhatsApp, Drive, etc. "Compartir → MoiMoi" de un audio (WhatsApp, Archivos…) lo agrega y lo separa. |
 | **API** | Otras apps pueden listar canciones, bajar pistas y pedir exportaciones (ver [API](#api)). |
@@ -120,7 +120,9 @@ computadora). No hace falta computadora ni internet.
    desde WhatsApp / Archivos usa **Compartir → MoiMoi** en un audio. Elige 2, 4 o 6 pistas.
 
 La separación tarda unos minutos por canción y depende del celular (en la computadora de pruebas, con 4 núcleos,
-una canción de 4 minutos tarda cerca de 1 minuto; un celular suele ser entre 2 y 4 veces más lento). Puedes minimizar la app o apagar la pantalla: sigue separando y la notificación muestra el
+una canción de 4 minutos tarda cerca de 1 minuto; un celular suele ser entre 2 y 4 veces más lento). Para que el
+celular no se caliente, la app hace pausas cortas entre trozos de la canción, y más largas si Android avisa que se
+está calentando. Puedes minimizar la app o apagar la pantalla: sigue separando y la notificación muestra el
 avance. Las canciones se separan de a una, en orden, y si Android cierra la app a mitad de camino, al volver a
 abrirla sigue sola. Después la escuchas con el mezclador (volumen, paneo, solo, mute, velocidad y tono en tiempo
 real) y en **Exportar** armas las pistas sueltas, la mezcla o el paquete `.zip` para Multitrack Alabanza:
@@ -129,22 +131,26 @@ real) y en **Exportar** armas las pistas sueltas, la mezcla o el paquete `.zip` 
 
 Después de separar, la app analiza la canción en el mismo celular, igual que en la computadora: tempo (BPM),
 compás, tonalidad y cambios de tonalidad, acordes (con inversiones), partes (intro, verso, coro, puente…) e
-instrumentos. Con eso el reproductor muestra los acordes y las partes, el metrónomo sigue el pulso y el paquete
-para Multitrack puede llevar el click y la cuenta inicial.
+instrumentos. Con eso el reproductor muestra los acordes y las partes, y el paquete para Multitrack puede llevar
+el click y la cuenta inicial.
 
-La **voz guía** también funciona en el celular: en *Ajustes → Voz guía y click* toca **Cargar paquete** y elige
-el .zip de tu paquete de voces (o los audios sueltos); la app reconoce cada voz por el nombre del archivo ("Coro",
-"Verso 1", "1, 2, 3, 4"…, en varios idiomas) y los sonidos de click del paquete. También puedes grabar tus propias
-voces con el micrófono. Al exportar el paquete para Multitrack, marca **Guía**.
+**Click y voz guía incluidos:** la app ya trae las voces guía (español, inglés, portugués y francés) y 8 sonidos de
+click (Classic, Blip, Cowbell, Woodblock…); se instalan solas la primera vez, sin cargar nada. En el reproductor,
+las filas **Click** y **Guía** del mezclador (o los botones *Click* y *Guía* de la barra de abajo) los hacen sonar
+junto con las pistas: el click sigue el pulso y la guía anuncia cada parte un compás antes, con la velocidad, los
+loops y la cuenta. En *Ajustes → Voz guía y click* se elige el idioma, el sonido del click y si dice los números
+de las partes; ahí también se pueden cargar otras voces (.zip o audios, reconocidos por el nombre del archivo),
+grabar las propias con el micrófono o restaurar las incluidas. Al exportar el paquete para Multitrack, la **Guía**
+y el **Click** van como pistas.
 
 **Otra velocidad o tono al exportar:** si en el reproductor cambias la velocidad o el tono (por ejemplo, bajar un
-tono para quien canta), en *Exportar* marca **Aplicar los cambios actuales**: las pistas, el click, la guía, los
-acordes y la tonalidad del paquete salen con esos cambios, y el nombre del archivo lo dice ("en A, 90%").
+tono para quien canta), *Exportar* ofrece **Exportar con** esa velocidad y ese tono: las pistas, el click, la guía,
+los acordes y la tonalidad del paquete salen con esos cambios, y el nombre del archivo lo dice ("en A, 90%").
 
 Todavía no están en la app del celular (sí en la computadora): links y búsqueda de YouTube, MP3, y la letra
 automática.
 
-**Usar la computadora desde la app (opcional):** en *Ajustes → Celular o computadora → Usar MoiMoi de la
+**Usar la computadora desde la app (opcional):** en *Ajustes → MoiMoi en la computadora → Conectar con la
 computadora* la app se conecta a MoiMoi en una computadora de la **misma red WiFi** (más rápido con tarjeta
 gráfica NVIDIA, y con todas las funciones). Abre MoiMoi en la computadora: en su ventana (y en *Ajustes →
 Celulares y tablets*) aparece la dirección, por ejemplo `192.168.1.20`; escríbela en la app o toca *Buscar
@@ -173,15 +179,19 @@ La pista **Guía** anuncia cada parte de la canción ("Intro", "Verso 1", "Coro"
 y cuenta "1, 2, 3, 4" en los compases que se agregan antes de empezar. Así, al pasar la canción a Multitrack
 Alabanza, la banda escucha la estructura en los auriculares, y las partes quedan como marcadores.
 
-1. En *Ajustes → Voz guía y click*, **Cargar paquete** y elige el `.zip` de voces guía que descargaste (por
-   ejemplo el de secuencias.com) o los audios sueltos. MoiMoi reconoce cada archivo por su nombre, en español
-   o inglés: `Spanish - Coro 2 (Chorus 2).wav`, `01 - Verso.mp3`, `VG_PreCoro.wav`, `uno.wav`, `4.wav`…
-2. Si el paquete trae **varios idiomas** (español, inglés, portugués…), cada uno queda por separado: elige cuál
-   usar. Si trae **sonidos de click** (`Click - Classic-accents.wav`…), aparecen para elegir el sonido del
-   click.
-3. Revisa la lista: se puede escuchar cada voz, cambiarla por otro archivo o **grabarla con el micrófono**.
-   Arriba se avisa si falta alguna importante. Los archivos dañados del `.zip` se saltean y se informan.
-4. Al exportar para Multitrack deja activada la **pista Guía** y elige la **cuenta** (0, 1 o 2 compases).
+MoiMoi (en la computadora y en el celular) ya trae voces guía en **español, inglés, portugués y francés** y 8
+sonidos de click; se instalan solos la primera vez (vienen de `recursos/voz-guia/` del repositorio). En el
+reproductor se escuchan con las filas **Click** y **Guía** del mezclador.
+
+1. En *Ajustes → Voz guía y click* elige el **idioma de la voz**, el **sonido del click** y si dice los números
+   de las partes.
+2. En *Ver las voces… o cargar otras* se puede escuchar cada voz, cambiarla por otro archivo, **grabarla con el
+   micrófono**, cargar otro paquete (`.zip` o audios sueltos) o **restaurar las incluidas**. MoiMoi reconoce cada
+   archivo por su nombre, en español o inglés: `Spanish - Coro 2 (Chorus 2).wav`, `01 - Verso.mp3`,
+   `VG_PreCoro.wav`, `uno.wav`, `4.wav`…; si el paquete trae varios idiomas quedan por separado, y los sonidos de
+   click (`Click - Classic-accents.wav`…) aparecen para elegir. Los archivos dañados del `.zip` se saltean y se
+   informan. Lo que cargues no reemplaza las voces incluidas de otros idiomas, y lo que borres no vuelve solo.
+3. Al exportar para Multitrack deja activada la **pista Guía** y elige la **cuenta** (0, 1 o 2 compases).
 
 Qué dice en cada parte: el **nombre de la parte** (se puede cambiar en el reproductor). Por defecto numera los
 versos ("Verso 1", "Verso 2") y no los coros; se cambia en Ajustes. Si escribes una indicación en el nombre,

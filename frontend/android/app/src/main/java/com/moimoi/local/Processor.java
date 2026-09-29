@@ -129,14 +129,39 @@ public final class Processor {
                             gain, audio.frames, info.segmentSamples);
                     report.at("separate", 0.0, "Separando pistas con IA…", "separating");
                     separator.separate(audio, sink, new DemucsSeparator.Listener() {
+                        private long workStart = System.currentTimeMillis();
+
                         @Override
                         public void progress(double fraction) {
-                            report.at("separate", fraction, "Separando pistas con IA…", "separating");
+                            int level = platform.thermalLevel();
+                            report.at("separate", fraction, level >= 2
+                                    ? "Separando despacio para que el celular no se caliente…"
+                                    : "Separando pistas con IA…", "separating");
+                            rest(level);
                         }
 
                         @Override
                         public boolean cancelled() {
                             return jobReport.cancelled();
+                        }
+
+                        /** Descanso entre trozos: el celular se enfría (más largo si ya está caliente). */
+                        private void rest(int level) {
+                            long now = System.currentTimeMillis();
+                            long end = now + coolDownMillis(level, now - workStart);
+                            while (!jobReport.cancelled()) {
+                                long left = end - System.currentTimeMillis();
+                                if (left <= 0) {
+                                    break;
+                                }
+                                try {
+                                    Thread.sleep(Math.min(200, left));
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                    break;
+                                }
+                            }
+                            workStart = System.currentTimeMillis();
                         }
                     });
                 }
@@ -244,6 +269,19 @@ public final class Processor {
             e.printStackTrace();
             return "No se pudo analizar la canción: " + e.getMessage();
         }
+    }
+
+    /**
+     * Pausa después de trabajar `workMillis` separando, según qué tan caliente está el celular
+     * (Platform.thermalLevel): normal = un tercio del tiempo de trabajo (la separación tarda un poco
+     * más pero el celular no se calienta tanto); caliente = más; -1 (computadora) = sin pausa.
+     */
+    static long coolDownMillis(int level, long workMillis) {
+        if (level < 0 || workMillis <= 0) {
+            return 0;
+        }
+        double factor = level == 0 ? 0.35 : level == 1 ? 0.8 : level == 2 ? 1.5 : level == 3 ? 3.0 : 5.0;
+        return Math.min(30000, Math.round(workMillis * factor));
     }
 
     /** Avance del trabajo, de la canción y de la notificación a la vez. */

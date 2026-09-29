@@ -262,12 +262,9 @@ function PhoneUploadTab({ preset, onAdded }: TabProps) {
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && !busy && void pick()}>
         {busy ? <Loader2 size={26} className="spin" color="#b7a3ff" /> : <Upload size={26} color="#b7a3ff" />}
         <b>{busy ? 'Copiando la canción…' : 'Elegir canciones del celular'}</b>
-        <span className="small muted">MP3, M4A, WAV, FLAC, OGG, audios de WhatsApp o videos · hasta 20 minutos</span>
+        <span className="small muted">MP3, WAV, audios de WhatsApp o videos · hasta 20 min</span>
       </div>
-      <p className="tiny faint" style={{ margin: '10px 2px 0' }}>
-        También puedes compartir un audio con MoiMoi desde WhatsApp, Archivos u otra app. Usa solo música que tengas
-        permiso para usar (tus propias grabaciones, práctica personal, ensayo).
-      </p>
+      <p className="tiny faint" style={{ margin: '10px 2px 0' }}>Usa solo música que tengas permiso para usar.</p>
     </div>
   )
 }

@@ -24,8 +24,8 @@ import org.junit.runner.RunWith;
 /**
  * La separación completa en un Android de verdad (emulador en GitHub Actions): decodificar con
  * MediaCodec (M4A a 48 kHz estéreo y MP3 mono a 22 kHz), cargar el modelo desde el APK, separar con
- * ONNX Runtime, guardar las pistas y exportar el .zip. Los audios de prueba los genera la
- * compilación con ffmpeg (src/androidTest/assets).
+ * ONNX Runtime, guardar las pistas y exportar el .zip; y que las voces guía incluidas se instalen
+ * desde el APK. Los audios de prueba los genera la compilación con ffmpeg (src/androidTest/assets).
  */
 @RunWith(AndroidJUnit4.class)
 public class SeparacionEnAndroidTest {
@@ -124,6 +124,20 @@ public class SeparacionEnAndroidTest {
         }
         assertEquals(3, entries); // Voz.wav, Bateria.wav y moimoi.json
         call("DELETE", "/api/songs/" + song.getString("id"), null);
+    }
+
+    @Test
+    public void traeLasVocesGuiaYLosClicksIncluidos() throws Exception {
+        // Se instalan solas desde el APK (assets/voz-guia) al abrir la app.
+        JSONObject kit = call("GET", "/api/guia", null);
+        assertEquals("es", kit.getString("active"));
+        assertTrue("voces en español: " + kit.getInt("count"), kit.getInt("count") >= 30);
+        assertEquals(4, kit.getJSONArray("included").length());
+        assertEquals(8, kit.getJSONArray("clicks").length());
+        String url = kit.getJSONArray("files").getJSONObject(0).getString("url");
+        assertTrue(url, new File(url.substring("/_capacitor_file_".length())).isFile());
+        System.out.println("MoiMoi: voces incluidas " + kit.getJSONArray("included") + ", "
+                + kit.getInt("count") + " en español");
     }
 
     @Test

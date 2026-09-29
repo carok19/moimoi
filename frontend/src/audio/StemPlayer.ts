@@ -50,6 +50,12 @@ export interface LoopRange {
   end: number
 }
 
+/** Una voz de la Guía: cuándo suena (segundos de la canción) y su audio. */
+export interface GuideVoice {
+  time: number
+  buffer: AudioBuffer
+}
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
 /** Calidad con la que se cargan las pistas en el reproductor. */
@@ -268,6 +274,12 @@ export class StemPlayer {
   private metronomeOn = false
   private countInBars = 0
   private clicks: { accent: AudioBuffer; normal: AudioBuffer }
+  private defaultClicks: { accent: AudioBuffer; normal: AudioBuffer }
+  private guideBus: GainNode
+  private guide: GuideVoice[] = []
+  private guideTimes: number[] = []
+  private countVoices: (AudioBuffer | undefined)[] = []
+  private guideOn = false
   private scheduled: { node: AudioBufferSourceNode; time: number }[] = []
   private scheduledUntil = 0
   private timer: number | undefined
@@ -299,10 +311,14 @@ export class StemPlayer {
     this.master = ctx.createGain()
     this.clickBus = ctx.createGain()
     this.clickBus.gain.value = 0.7
+    this.guideBus = ctx.createGain()
+    this.guideBus.gain.value = 0.9
     this.master.connect(this.limiter)
     this.clickBus.connect(this.limiter)
+    this.guideBus.connect(this.limiter)
     this.limiter.connect(ctx.destination)
-    this.clicks = { accent: makeClick(ctx, true), normal: makeClick(ctx, false) }
+    this.defaultClicks = { accent: makeClick(ctx, true), normal: makeClick(ctx, false) }
+    this.clicks = this.defaultClicks
     this.timer = window.setInterval(() => this.tick(), TICK_MS)
   }
 
@@ -418,6 +434,7 @@ export class StemPlayer {
   }
 
   private applySegment(seg: Segment, resetClicks = true) {
+    const pausing = !seg.active && this.seg.active
     this.seg = seg
     const loop = this.loopRange
     const payload = {
@@ -425,7 +442,7 @@ export class StemPlayer {
       loopStart: loop?.start ?? 0, loopEnd: loop?.end ?? 0,
     }
     for (const ch of this.channels) void ch.node.schedule(payload)
-    if (resetClicks) this.resetClicks()
+    if (resetClicks || pausing) this.resetClicks(pausing)
     this.emit()
   }
 
@@ -470,6 +487,27 @@ export class StemPlayer {
     }
     this.applySegment({ output: start, input: p, rate: this.rate, active: true })
     for (const c of countIn) if (c.time >= now) this.scheduleClick(c.time, c.accent)
+    this.scheduleCountVoices(countIn.map((c) => c.time), now)
+  }
+
+  /** Con la Guía: en el último compás de la cuenta un número por pulso; en los anteriores "1 … 2 …". */
+  private scheduleCountVoices(times: number[], now: number): void {
+    const perBar = this.grid.beatsPerBar || 4
+    if (!this.guideOn || !times.length) return
+    for (let i = 1; i <= perBar; i++) if (!this.countVoices[i - 1]) return
+    const bars = Math.max(1, Math.floor(times.length / perBar))
+    times.forEach((time, index) => {
+      const bar = Math.floor(index / perBar)
+      const beat = index % perBar
+      let number = beat + 1
+      if (bar < bars - 1) {
+        const half = perBar % 2 === 0 ? perBar / 2 : perBar
+        if (beat % half !== 0) return
+        number = beat / half + 1
+      }
+      const voice = this.countVoices[number - 1]
+      if (voice && time >= now) this.schedule(voice, this.guideBus, time)
+    })
   }
 
   pause(): void {
@@ -607,10 +645,34 @@ export class StemPlayer {
     this.countInBars = Math.max(0, Math.round(bars))
   }
 
-  private resetClicks(): void {
+  /** Sonidos del click (los del paquete de voces); sin alguno, los de MoiMoi. */
+  setClickSounds(accent: AudioBuffer | null, beat: AudioBuffer | null): void {
+    this.clicks = accent && beat ? { accent, normal: beat } : this.defaultClicks
+    this.resetClicks()
+  }
+
+  /** La Guía: las voces en su lugar y los números para la cuenta (count[0] = "1"). */
+  setGuide(voices: GuideVoice[], count: (AudioBuffer | undefined)[]): void {
+    this.guide = [...voices].sort((a, b) => a.time - b.time)
+    this.guideTimes = this.guide.map((v) => v.time)
+    this.countVoices = count
+    this.resetClicks()
+  }
+
+  setGuideOn(on: boolean): void {
+    this.guideOn = on
+    this.resetClicks()
+  }
+
+  setGuideVolume(volume: number): void {
+    this.guideBus.gain.setTargetAtTime(clamp(volume, 0, 2), this.ctx.currentTime, 0.02)
+  }
+
+  /** Cancela lo programado que todavía no sonó (o todo, al pausar: que no siga una voz). */
+  private resetClicks(all = false): void {
     const now = this.ctx.currentTime
     for (const c of this.scheduled) {
-      if (c.time > now) {
+      if (all || c.time > now) {
         try {
           c.node.stop()
         } catch {
@@ -619,14 +681,18 @@ export class StemPlayer {
         c.node.disconnect()
       }
     }
-    this.scheduled = this.scheduled.filter((c) => c.time <= now)
+    this.scheduled = all ? [] : this.scheduled.filter((c) => c.time <= now)
     this.scheduledUntil = 0
   }
 
   private scheduleClick(time: number, accent: boolean): void {
+    this.schedule(accent ? this.clicks.accent : this.clicks.normal, this.clickBus, time)
+  }
+
+  private schedule(buffer: AudioBuffer, bus: GainNode, time: number): void {
     const src = this.ctx.createBufferSource()
-    src.buffer = accent ? this.clicks.accent : this.clicks.normal
-    src.connect(this.clickBus)
+    src.buffer = buffer
+    src.connect(bus)
     src.start(time)
     const entry = { node: src, time }
     this.scheduled.push(entry)
@@ -656,15 +722,24 @@ export class StemPlayer {
       this.applySegment({ output: now, input: this.duration, rate: this.rate, active: false })
       return
     }
-    if (!this.metronomeOn || !this.seg.active || !this.grid.beats.length) return
+    const clicks = this.metronomeOn && this.grid.beats.length > 0
+    const voices = this.guideOn && this.guide.length > 0
+    if (!this.seg.active || (!clicks && !voices)) return
     const lookahead = document.visibilityState === 'hidden' ? 2.0 : 0.25
     const from = Math.max(this.scheduledUntil, now, this.seg.output)
     const to = now + lookahead
     if (to <= from) return
     const beats = this.grid.beats
     for (const [a, b, t0] of this.pieces(from, to)) {
-      for (let i = lowerBound(beats, a); i < beats.length && beats[i] < b; i++) {
-        this.scheduleClick(t0 + (beats[i] - a) / this.seg.rate, this.grid.accents[i] ?? false)
+      if (clicks) {
+        for (let i = lowerBound(beats, a); i < beats.length && beats[i] < b; i++) {
+          this.scheduleClick(t0 + (beats[i] - a) / this.seg.rate, this.grid.accents[i] ?? false)
+        }
+      }
+      if (voices) {
+        for (let i = lowerBound(this.guideTimes, a); i < this.guide.length && this.guideTimes[i] < b; i++) {
+          this.schedule(this.guide[i].buffer, this.guideBus, t0 + (this.guideTimes[i] - a) / this.seg.rate)
+        }
       }
     }
     this.scheduledUntil = to

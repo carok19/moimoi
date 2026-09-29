@@ -54,6 +54,10 @@ def create_app(
     if transcriber is None and lyrics.available():
         transcriber = lyrics.transcribe
     guide_kit = guia.GuideKit(cfg.data_dir / "voz-guia")
+    try:
+        guide_kit.install_bundled(cfg.guide_bundle)  # voces guía y clicks incluidos (la primera vez)
+    except Exception:  # noqa: BLE001 - sin voces incluidas MoiMoi sigue funcionando
+        log.exception("No se pudieron instalar las voces guía incluidas")
     if exporter is None:
         exporter = functools.partial(exports.run_export, guide_kit=guide_kit)
     worker = Worker(cfg, db, separator, analyzer, transcriber, exporter)

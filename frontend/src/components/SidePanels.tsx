@@ -31,8 +31,7 @@ export function SectionsPanel({ player, sections, edited, loop, loopOn, onSeek, 
         {edited && <button className="btn ghost small" onClick={onReset} title="Volver a los nombres detectados"><RotateCcw size={13} /></button>}
       </div>
       <div className="tiny faint" style={{ marginTop: 4 }}>
-        Clic en el nombre para cambiarlo. Se exportan como marcadores y la voz guía los anuncia (por ejemplo
-        "Coro (última vez)" o "Puente sube tono").
+        Toca un nombre para cambiarlo (la Guía dice el nombre nuevo).
       </div>
       <div className="section-list">
         {sections.map((s, i) => {

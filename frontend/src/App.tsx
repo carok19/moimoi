@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Cpu, Smartphone, Zap } from 'lucide-react'
+import { Cpu, Zap } from 'lucide-react'
 import { isNativeApp, isStandalone, serverBase } from './api/base'
 import { onImported } from './api/local'
 import { AppProvider, useApp } from './context'
@@ -21,13 +21,7 @@ function EnginePill() {
   if (!engine.available) {
     return <div className="engine-pill"><span className="dot err" />IA no instalada</div>
   }
-  if (engine.device === 'phone') {
-    return (
-      <div className="engine-pill" title={engine.detail}>
-        <span className="dot" /><Smartphone size={14} />En este celular
-      </div>
-    )
-  }
+  if (engine.device === 'phone') return null // la app del celular: no hace falta decirlo
   const gpu = engine.device === 'cuda' || engine.device === 'mps'
   return (
     <div className="engine-pill" title={engine.detail}>

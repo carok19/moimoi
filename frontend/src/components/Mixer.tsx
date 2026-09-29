@@ -13,6 +13,18 @@ const LEVEL_TEXT: Record<string, string> = {
   ausente: 'Casi no suena',
 }
 
+/** Pistas que no salen de la separación: el Click y la Guía (se encienden y se apagan). */
+export interface ExtraTrack {
+  id: string
+  name: string
+  detail: string
+  color: string
+  on: boolean
+  volume: number
+  onToggle: () => void
+  onVolume: (volume: number) => void
+}
+
 interface Props {
   player: StemPlayer
   stems: StemInfo[]
@@ -23,9 +35,10 @@ interface Props {
   band: StemId[]
   onChange: (id: StemId, patch: Partial<MixerChannel>) => void
   onReplace: (mixer: Partial<Record<StemId, MixerChannel>>) => void
+  extras?: ExtraTrack[]
 }
 
-export function Mixer({ player, stems, peaks, instruments, mixer, duration, band, onChange, onReplace }: Props) {
+export function Mixer({ player, stems, peaks, instruments, mixer, duration, band, onChange, onReplace, extras = [] }: Props) {
   const meters = useRef<Record<string, HTMLDivElement | null>>({})
   const lines = useRef<Record<string, HTMLDivElement | null>>({})
   const waves = useRef<Record<string, HTMLDivElement | null>>({})
@@ -75,6 +88,7 @@ export function Mixer({ player, stems, peaks, instruments, mixer, duration, band
         )}
         <button className="btn small ghost" onClick={reset} title="Todo al 100 %, sin mute ni solo"><RotateCcw size={14} />Restablecer</button>
       </div>
+      {extras.map((track) => <ExtraRow key={track.id} track={track} />)}
       {stems.map((stem) => {
         const state = { ...DEFAULT_CHANNEL, ...(mixer[stem.id] ?? {}) }
         const audible = anySolo ? state.solo : !state.mute
@@ -96,6 +110,32 @@ export function Mixer({ player, stems, peaks, instruments, mixer, duration, band
         )
       })}
     </section>
+  )
+}
+
+function ExtraRow({ track }: { track: ExtraTrack }) {
+  return (
+    <div className={`stem-row extra-row${track.on ? '' : ' dim'}`}>
+      <div className="stem-name">
+        <span className="color" style={{ background: track.color }} />
+        <div style={{ minWidth: 0 }}>
+          <b className="ellipsis">{track.name}</b>
+          <small className="ellipsis" title={track.detail}>{track.detail}</small>
+        </div>
+      </div>
+      <label className="toggle extra-toggle">
+        <input type="checkbox" checked={track.on} onChange={track.onToggle} aria-label={`Escuchar ${track.name}`} />
+        <span className="track" />
+      </label>
+      <div className="stem-controls">
+        <div className="vol">
+          <input type="range" min={0} max={150} step={1} value={Math.round(track.volume * 100)}
+            onChange={(e) => track.onVolume(Number(e.target.value) / 100)} aria-label={`Volumen de ${track.name}`}
+            style={{ ['--track' as string]: `linear-gradient(90deg, ${track.color} ${(track.volume / 1.5) * 100}%, var(--panel-3) 0)` }} />
+          <span>{Math.round(track.volume * 100)}%</span>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -164,11 +204,11 @@ function StemRow({ stem, state, audible, info, peaks, duration, onChange, meterR
         </div>
         <div className="meter"><div ref={meterRef} /></div>
         <div className="pan-row">
-          <span>I</span>
+          <span>Izq</span>
           <input type="range" min={-100} max={100} step={1} value={Math.round(state.pan * 100)}
             onChange={(e) => onChange({ pan: Number(e.target.value) / 100 })}
             onDoubleClick={() => onChange({ pan: 0 })} aria-label={`Paneo de ${stem.name}`} />
-          <span>D</span>
+          <span>Der</span>
         </div>
       </div>
     </div>

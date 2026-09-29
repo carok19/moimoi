@@ -29,12 +29,11 @@ function PhoneMode() {
     return (
       <div className="stack">
         <div className="small muted">
-          La separación, las pistas y las exportaciones se hacen <b>en este celular</b>: no hace falta computadora ni
-          internet. Si tienes MoiMoi abierto en una computadora (más rápido con tarjeta gráfica NVIDIA), también puedes
-          usarlo desde acá.
+          Opcional: si tienes MoiMoi abierto en una computadora de la misma WiFi, puedes usarlo desde acá (por ejemplo, para
+          links de YouTube).
         </div>
         <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => navigate('#/conectar')}>
-          <Laptop size={16} />Usar MoiMoi de la computadora
+          <Laptop size={16} />Conectar con la computadora
         </button>
       </div>
     )
@@ -90,9 +89,8 @@ function MultitrackSettings() {
     <>
       {standalone ? (
         <div className="small muted">
-          <b>Exportar → Multitrack</b> arma un .zip con una pista por instrumento (y el <b>Click</b>, la <b>Guía</b> y las
-          partes de la canción cuando estén en el celular). Compártelo por WhatsApp y ábrelo en Multitrack Alabanza con
-          <i> Cargar canción (.zip)</i>.
+          En <b>Exportar → Multitrack</b> se arma el .zip para Multitrack Alabanza (ábrelo con <i>Cargar canción (.zip)</i>).
+          Qué lleva por defecto:
         </div>
       ) : (
         <div className="small muted">
@@ -117,7 +115,7 @@ function MultitrackSettings() {
             : `${status.error ?? 'No responde'}. Si está en la misma computadora, deja http://127.0.0.1:4848.`}
         </div>
       )}
-      <div className="small muted">Al exportar para Multitrack, por defecto:</div>
+      {!standalone && <div className="small muted">Al exportar para Multitrack, por defecto:</div>}
       <label className="toggle">
         <input type="checkbox" checked={settings.exportClick} onChange={(e) => void save({ exportClick: e.target.checked })} />
         <span className="track" />
@@ -158,8 +156,8 @@ export function SettingsPage() {
         <section className="card">
           <h2>Mi banda</h2>
           <div className="small muted">
-            Marca los instrumentos que <b>sí tiene</b> tu banda. En el reproductor, <i>Tocar con mi banda</i> silencia esas
-            pistas y deja sonar solo lo que les falta; al exportar para Multitrack puedes elegir solo esas pistas.
+            Marca lo que tu banda toca en vivo: con <i>Tocar con mi banda</i> esas pistas se silencian y suena solo lo que
+            falta.
           </div>
           <div className="band-grid">
             {BAND_INSTRUMENTS.map((id) => (
@@ -188,7 +186,7 @@ export function SettingsPage() {
         </section>
 
         <section className="card">
-          <h2>{isNativeApp ? 'Celular o computadora' : 'Celulares y tablets'}</h2>
+          <h2>{isNativeApp ? (isStandalone() ? 'MoiMoi en la computadora' : 'Celular o computadora') : 'Celulares y tablets'}</h2>
           {isNativeApp ? <PhoneMode /> : <PhoneAccess />}
         </section>
 
@@ -203,7 +201,7 @@ export function SettingsPage() {
         </section>
 
         <section className="card">
-          <h2>Acordes y metrónomo</h2>
+          <h2>Acordes y click</h2>
           <div className="row wrap">
             <span className="grow">Nombres de las notas</span>
             <div className="segmented">
@@ -212,44 +210,46 @@ export function SettingsPage() {
             </div>
           </div>
           <div className="row wrap">
-            <span className="grow">Volumen del metrónomo</span>
+            <span className="grow">Volumen del click en el reproductor</span>
             <input type="range" min={0} max={150} value={Math.round(settings.metronomeVolume * 100)} style={{ maxWidth: 260 }}
-              onChange={(e) => void save({ metronomeVolume: Number(e.target.value) / 100 })} aria-label="Volumen del metrónomo" />
+              onChange={(e) => void save({ metronomeVolume: Number(e.target.value) / 100 })} aria-label="Volumen del click" />
           </div>
         </section>
 
-        <section className="card">
-          <h2>Motor de IA</h2>
-          {health ? (
-            <>
-              <dl className="kv">
-                <dt>Separación</dt><dd>{health.engine.detail}</dd>
-                <dt>Procesa con</dt>
-                <dd>{health.engine.device === 'cuda' ? `GPU NVIDIA${health.engine.gpu ? ` (${health.engine.gpu})` : ''}`
-                  : health.engine.device === 'mps' ? 'GPU de Apple' : health.engine.device === 'phone' ? 'Este celular'
-                    : 'Procesador (CPU)'}</dd>
-                <dt>Versión</dt><dd>MoiMoi {health.version}</dd>
-                {!health.standalone && <><dt>Carpeta de datos</dt><dd>{health.dataDir}</dd></>}
-              </dl>
-              {health.standalone ? (
+        {health?.standalone ? (
+          <section className="card">
+            <h2>Acerca de</h2>
+            <dl className="kv">
+              <dt>Versión</dt><dd>MoiMoi {health.version}</dd>
+            </dl>
+            <div className="small muted">
+              Todavía no están en el celular: links de YouTube, MP3 y letra automática (sí en MoiMoi para computadora).
+            </div>
+          </section>
+        ) : (
+          <section className="card">
+            <h2>Motor de IA</h2>
+            {health ? (
+              <>
+                <dl className="kv">
+                  <dt>Separación</dt><dd>{health.engine.detail}</dd>
+                  <dt>Procesa con</dt>
+                  <dd>{health.engine.device === 'cuda' ? `GPU NVIDIA${health.engine.gpu ? ` (${health.engine.gpu})` : ''}`
+                    : health.engine.device === 'mps' ? 'GPU de Apple' : 'Procesador (CPU)'}</dd>
+                  <dt>Versión</dt><dd>MoiMoi {health.version}</dd>
+                  <dt>Carpeta de datos</dt><dd>{health.dataDir}</dd>
+                </dl>
                 <div className="stack" style={{ gap: 8 }}>
-                  <Feature ok label="Separación de pistas en 2, 4 o 6 (Demucs, en el celular)" />
-                  <Feature ok={health.features.analysis !== false} label="Tempo, compás, tonalidad, acordes y partes" hint="actualiza MoiMoi" />
-                  <Feature ok label="Exportar pistas, mezcla y paquete para Multitrack con click (WAV)" />
-                  <Feature ok={health.features.guide !== false} label="Voz guía que anuncia cada parte" hint="actualiza MoiMoi" />
+                  <Feature ok={health.engine.available} label="Separación de pistas (Demucs)" hint="Ejecuta el instalador: iniciar.bat / ./iniciar.sh" />
+                  <Feature ok={health.features.youtube} label="Links de YouTube y otros sitios (yt-dlp)" hint='pip install -U "yt-dlp[default]"' />
+                  <Feature ok={health.features.ffmpeg} label="Lectura de cualquier formato de audio o video (ffmpeg)" hint="pip install imageio-ffmpeg" />
                   <Feature ok={health.features.stretchExport} label="Exportar con otra velocidad o tono" hint="actualiza MoiMoi" />
-                  <Feature ok={false} label="Links de YouTube, MP3 y letra automática" hint="Por ahora solo en MoiMoi para computadora" />
+                  <Feature ok={health.features.lyrics} label="Transcripción de letras (opcional)" hint="pip install faster-whisper" />
                 </div>
-              ) : <div className="stack" style={{ gap: 8 }}>
-                <Feature ok={health.engine.available} label="Separación de pistas (Demucs)" hint="Ejecuta el instalador: iniciar.bat / ./iniciar.sh" />
-                <Feature ok={health.features.youtube} label="Links de YouTube y otros sitios (yt-dlp)" hint='pip install -U "yt-dlp[default]"' />
-                <Feature ok={health.features.ffmpeg} label="Lectura de cualquier formato de audio o video (ffmpeg)" hint="pip install imageio-ffmpeg" />
-                <Feature ok={health.features.stretchExport} label="Exportar con otra velocidad o tono" hint="actualiza MoiMoi" />
-                <Feature ok={health.features.lyrics} label="Transcripción de letras (opcional)" hint="pip install faster-whisper" />
-              </div>}
-            </>
-          ) : <div className="muted">Sin conexión con el servidor.</div>}
-        </section>
+              </>
+            ) : <div className="muted">Sin conexión con el servidor.</div>}
+          </section>
+        )}
 
         {!isNativeApp && <section className="card">
           <h2>API para otras apps</h2>

@@ -13,6 +13,7 @@ anuncia, y la cuenta ("1, 2, 3, 4") suena en los compases que se agregan antes d
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import secrets
@@ -384,6 +385,7 @@ class GuideKit:
             "count": len(assigned),
             "missing": [CUE_NAMES[c] for c in MAIN_CUES if c not in assigned] if shown else [],
             "clicks": self._describe_clicks(data),
+            "included": self.bundled_sets(),
         }
 
     @staticmethod
@@ -583,6 +585,7 @@ class GuideKit:
 
     def remove_set(self, set_id: str) -> None:
         with self._lock:
+            self._forget_bundled("sets", set_id)
             data = self._load()
             for fid in list(self._voices(data, set_id)):
                 self._drop(data, fid)
@@ -593,6 +596,7 @@ class GuideKit:
 
     def remove_clicks(self, style: str) -> None:
         with self._lock:
+            self._forget_bundled("clicks", style)
             data = self._load()
             for fid, info in list(data["files"].items()):
                 if info["kind"] == "click" and info.get("style") == style:
@@ -602,6 +606,98 @@ class GuideKit:
     def clear(self) -> None:
         with self._lock:
             shutil.rmtree(self.root, ignore_errors=True)
+
+    # -- voces incluidas con MoiMoi --
+
+    @property
+    def _bundle_marker(self) -> Path:
+        return self.root / "incluidas.json"
+
+    def _forget_bundled(self, field: str, item: str) -> None:
+        """El usuario borró un idioma o un sonido de click de los incluidos: no se vuelve a poner solo."""
+        marker = read_json(self._bundle_marker, None)
+        if not marker or item not in marker.get(field, []):
+            return
+        marker[field] = sorted(set(marker[field]) - {item})
+        marker[f"removed_{field}"] = sorted(set(marker.get(f"removed_{field}", [])) | {item})
+        write_json(self._bundle_marker, marker)
+
+    def bundled_sets(self) -> list[str]:
+        """Idiomas de voces que vinieron con MoiMoi y siguen instalados."""
+        marker = read_json(self._bundle_marker, None) or {}
+        return sorted(marker.get("sets", []))
+
+    def install_bundled(self, source: Path | None, restore: bool = False) -> int:
+        """Instala las voces guía y los sonidos de click que vienen con MoiMoi (`source` = carpeta con
+        kit.json y audio/), para no tener que cargar nada: la primera vez, todo; cuando MoiMoi trae
+        otras (cambia kit.json), lo que falte. No toca lo que cargó el usuario (un idioma propio con
+        el mismo nombre queda como está) ni vuelve a poner lo que borró, salvo con `restore`.
+        Devuelve cuántos archivos agregó, o -1 si no hay voces incluidas (igual que la app)."""
+        index = source / "kit.json" if source else None
+        if index is None or not index.is_file():
+            return -1
+        raw = index.read_bytes()
+        version = format(zlib.crc32(raw) & 0xFFFFFFFF, "x")
+        with self._lock:
+            marker = read_json(self._bundle_marker, None) or {}
+            if not restore and marker.get("version") == version:
+                return 0
+            bundle = json.loads(raw.decode("utf-8"))
+            bundle_files = bundle.get("files") or {}
+            bundle_sets = bundle.get("sets") or {}
+            own = {"sets": set(marker.get("sets", [])), "clicks": set(marker.get("clicks", []))}
+            removed = {"sets": set(marker.get("removed_sets", [])), "clicks": set(marker.get("removed_clicks", []))}
+            data = self._load()
+            cues: dict[str, set[str]] = {}
+            roles: dict[str, set[str]] = {}
+            for info in data["files"].values():
+                if info["kind"] == "click":
+                    roles.setdefault(info.get("style"), set()).add(info.get("role"))
+                elif info.get("cue"):
+                    cues.setdefault(info.get("set"), set()).add(info["cue"])
+            added = 0
+            for file_id, info in bundle_files.items():
+                click = info.get("kind") == "click"
+                field = "clicks" if click else "sets"
+                group = info.get("style") if click else info.get("set")
+                if file_id in data["files"]:
+                    own[field].add(group)  # ya instalada antes
+                    continue
+                exists = group in roles if click else group in data["sets"]
+                if exists and group not in own[field]:
+                    continue  # el usuario tiene los suyos con ese nombre
+                if not exists and group in removed[field] and not restore:
+                    continue  # lo borró el usuario
+                if exists:
+                    taken = (info.get("role") in roles[group]) if click else \
+                        (not info.get("cue") or info["cue"] in cues.get(group, set()))
+                    if taken:
+                        continue  # solo se completa lo que falta
+                audio = source / "audio" / f"{file_id}.wav"
+                if not audio.is_file():
+                    continue
+                self.audio_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(audio, self.audio_dir / f"{file_id}.wav")
+                data["files"][file_id] = dict(info)
+                if click:
+                    roles.setdefault(group, set()).add(info.get("role"))
+                else:
+                    if group not in data["sets"]:
+                        data["sets"][group] = dict(bundle_sets.get(group) or {"name": group})
+                    if info.get("cue"):
+                        cues.setdefault(group, set()).add(info["cue"])
+                removed[field].discard(group)
+                own[field].add(group)
+                added += 1
+            if data["active"] not in data["sets"]:
+                preferred = bundle.get("active")
+                data["active"] = preferred if preferred in data["sets"] else self._pick_active(data)
+            self._save(data)
+            write_json(self._bundle_marker, {
+                "version": version, "sets": sorted(own["sets"]), "clicks": sorted(own["clicks"]),
+                "removed_sets": sorted(removed["sets"]), "removed_clicks": sorted(removed["clicks"]),
+            })
+            return added
 
 
 def _classify_with_folder(label: str) -> str | None:

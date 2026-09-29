@@ -96,6 +96,9 @@ public final class DemucsSeparator implements AutoCloseable {
         // Los números "desnormalizados" (menores a 1e-38) hacen muy lenta la CPU y no se escuchan:
         // con audio real el modelo tarda la mitad al tratarlos como cero.
         options.addConfigEntry("session.set_denormal_as_zero", "1");
+        // Que los núcleos descansen entre operaciones en vez de quedar dando vueltas esperando: casi
+        // igual de rápido y el celular gasta (y se calienta) bastante menos.
+        options.addConfigEntry("session.intra_op.allow_spinning", "0");
         // Sin el "arena" de ONNX Runtime la memoria se devuelve después de cada segmento: el pico
         // baja de ~3 GB a ~1 GB (clave en el celular) y hasta es un poco más rápido.
         options.setCPUArenaAllocator(false);

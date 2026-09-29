@@ -1,5 +1,6 @@
 package com.moimoi.local;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import org.json.JSONArray;
@@ -29,8 +31,9 @@ import org.json.JSONObject;
 
 /**
  * Voz guía (como guia.py de la computadora): las voces que anuncian las partes de la canción
- * ("Verso 1", "Coro"…) y la cuenta. El usuario carga su propio paquete de voces (el .zip de un
- * sitio de secuencias o grabaciones propias); cada archivo se reconoce por su nombre y se puede
+ * ("Verso 1", "Coro"…) y la cuenta. La app trae voces y sonidos de click incluidos (se instalan
+ * solos, ver installBundled); además el usuario puede cargar su propio paquete (el .zip de un
+ * sitio de secuencias o grabaciones propias): cada archivo se reconoce por su nombre y se puede
  * reasignar a mano. Si el paquete trae varios idiomas, cada uno queda por separado, y los sonidos
  * de click del paquete también se reconocen. Con eso se arma la pista Guía del multitrack.
  */
@@ -596,6 +599,30 @@ public final class Guide {
         return new File(audioDir, fileId + ".wav");
     }
 
+    /** URL con la que la interfaz escucha un audio de las voces. */
+    String urlOf(File audio) {
+        return platform.fileUrl(audio);
+    }
+
+    /** {"accent": url, "beat": url} de un estilo de click (vacío si no está: se usa el de MoiMoi). */
+    public synchronized JSONObject clickUrls(String style) throws JSONException {
+        JSONArray styles = describeClicks(load());
+        for (int i = 0; i < styles.length(); i++) {
+            JSONObject s = styles.getJSONObject(i);
+            if (s.optString("id").equals(style)) {
+                JSONObject sounds = s.getJSONObject("sounds");
+                JSONObject out = new JSONObject();
+                String beat = sounds.optString("beat", sounds.optString("eighth", sounds.optString("sixteenth", sounds.optString("accent", ""))));
+                String accent = sounds.optString("accent", beat);
+                if (!beat.isEmpty()) {
+                    out.put("accent", accent).put("beat", beat);
+                }
+                return out;
+            }
+        }
+        return new JSONObject();
+    }
+
     private String url(String fileId) {
         return platform.fileUrl(audioFile(fileId));
     }
@@ -673,6 +700,7 @@ public final class Guide {
         out.put("count", assigned.size());
         out.put("missing", missing);
         out.put("clicks", describeClicks(data));
+        out.put("included", sorted(bundledSets()));
         return out;
     }
 
@@ -1151,6 +1179,7 @@ public final class Guide {
     }
 
     public synchronized void removeSet(String setId) throws JSONException, IOException {
+        forgetBundled("sets", setId);
         JSONObject data = load();
         for (String id : new ArrayList<>(voices(data, setId).keySet())) {
             drop(data, id);
@@ -1164,6 +1193,7 @@ public final class Guide {
     }
 
     public synchronized void removeClicks(String style) throws JSONException, IOException {
+        forgetBundled("clicks", style);
         JSONObject data = load();
         JSONObject files = data.getJSONObject("files");
         for (String id : keys(files)) {
@@ -1177,6 +1207,199 @@ public final class Guide {
 
     public synchronized void clear() {
         Store.removeTree(root);
+    }
+
+    // -- voces incluidas en la app --
+
+    /** Carpeta dentro de la app con las voces y los clicks incluidos: kit.json + audio/<id>.wav. */
+    static final String BUNDLE = "voz-guia";
+
+    private File bundleMarker() {
+        return new File(root, "incluidas.json");
+    }
+
+    private static Set<String> toSet(JSONArray array) {
+        Set<String> out = new HashSet<>();
+        if (array != null) {
+            for (int i = 0; i < array.length(); i++) {
+                out.add(array.optString(i));
+            }
+        }
+        return out;
+    }
+
+    private static JSONArray sorted(Set<String> values) {
+        List<String> list = new ArrayList<>(values);
+        Collections.sort(list);
+        return new JSONArray(list);
+    }
+
+    private static byte[] readAll(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[1 << 16];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            out.write(buf, 0, n);
+        }
+        return out.toByteArray();
+    }
+
+    private boolean copyBundled(String path, File target) throws IOException {
+        try (InputStream in = platform.openBundled(path)) {
+            if (in == null) {
+                return false;
+            }
+            if (!audioDir.isDirectory() && !audioDir.mkdirs()) {
+                throw new IOException("No se pudo crear la carpeta de las voces");
+            }
+            File tmp = new File(target.getPath() + ".tmp");
+            try (OutputStream out = new FileOutputStream(tmp)) {
+                byte[] buf = new byte[1 << 16];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                }
+            }
+            if (!tmp.renameTo(target)) {
+                tmp.delete();
+                throw new IOException("No se pudo guardar una voz");
+            }
+            return true;
+        }
+    }
+
+    /** El usuario borró un idioma o un sonido de click de los incluidos: no se vuelve a poner solo. */
+    private void forgetBundled(String field, String id) throws JSONException, IOException {
+        JSONObject marker = Json.readObject(bundleMarker());
+        if (marker == null) {
+            return;
+        }
+        Set<String> own = toSet(marker.optJSONArray(field));
+        if (own.remove(id)) {
+            Set<String> removed = toSet(marker.optJSONArray("removed_" + field));
+            removed.add(id);
+            marker.put(field, sorted(own)).put("removed_" + field, sorted(removed));
+            Json.write(bundleMarker(), marker);
+        }
+    }
+
+    /** Idiomas de voces que vinieron con la app y siguen instalados. */
+    synchronized Set<String> bundledSets() {
+        JSONObject marker = Json.readObject(bundleMarker());
+        return marker == null ? new HashSet<>() : toSet(marker.optJSONArray("sets"));
+    }
+
+    /**
+     * Instala las voces guía y los sonidos de click que vienen con la app, para que no haya que
+     * cargar nada: la primera vez, todo; cuando la app trae otras (se nota porque cambia kit.json),
+     * lo que falte. No toca lo que cargó el usuario (un idioma propio con el mismo nombre queda
+     * como está) ni vuelve a poner lo que borró, salvo con restore (botón "Restaurar voces
+     * incluidas"). Devuelve cuántos archivos agregó, o -1 si la app no trae voces.
+     */
+    public synchronized int installBundled(boolean restore) throws IOException, JSONException {
+        byte[] raw;
+        try (InputStream in = platform.openBundled(BUNDLE + "/kit.json")) {
+            if (in == null) {
+                return -1;
+            }
+            raw = readAll(in);
+        }
+        CRC32 crc = new CRC32();
+        crc.update(raw);
+        String version = Long.toHexString(crc.getValue());
+        JSONObject marker = Json.readObject(bundleMarker());
+        if (marker == null) {
+            marker = new JSONObject();
+        }
+        if (!restore && version.equals(marker.optString("version"))) {
+            return 0;
+        }
+        JSONObject bundle = new JSONObject(new String(raw, "UTF-8"));
+        JSONObject bundleFiles = bundle.optJSONObject("files");
+        JSONObject bundleSets = bundle.optJSONObject("sets");
+        if (bundleFiles == null) {
+            return 0;
+        }
+        Set<String> ownSets = toSet(marker.optJSONArray("sets"));
+        Set<String> ownClicks = toSet(marker.optJSONArray("clicks"));
+        Set<String> removedSets = toSet(marker.optJSONArray("removed_sets"));
+        Set<String> removedClicks = toSet(marker.optJSONArray("removed_clicks"));
+
+        JSONObject data = load();
+        JSONObject files = data.getJSONObject("files");
+        JSONObject sets = data.getJSONObject("sets");
+        Map<String, Set<String>> cues = new HashMap<>(); // idioma -> voces asignadas
+        Map<String, Set<String>> roles = new HashMap<>(); // estilo de click -> sonidos
+        for (String id : keys(files)) {
+            JSONObject info = files.optJSONObject(id);
+            if (info == null) {
+                continue;
+            }
+            if (info.optString("kind").equals("click")) {
+                roles.computeIfAbsent(info.optString("style"), k -> new HashSet<>()).add(info.optString("role"));
+            } else if (cueOf(info) != null) {
+                cues.computeIfAbsent(info.optString("set"), k -> new HashSet<>()).add(cueOf(info));
+            }
+        }
+        int added = 0;
+        for (String id : keys(bundleFiles)) {
+            JSONObject info = bundleFiles.optJSONObject(id);
+            if (info == null) {
+                continue;
+            }
+            boolean click = info.optString("kind").equals("click");
+            String group = click ? info.optString("style") : info.optString("set");
+            Set<String> own = click ? ownClicks : ownSets;
+            if (files.has(id)) {
+                own.add(group); // ya instalada antes
+                continue;
+            }
+            boolean exists = click ? roles.containsKey(group) : sets.has(group);
+            if (exists && !own.contains(group)) {
+                continue; // el usuario tiene los suyos con ese nombre
+            }
+            if (!exists && (click ? removedClicks : removedSets).contains(group) && !restore) {
+                continue; // lo borró el usuario
+            }
+            if (exists) {
+                String cue = cueOf(info);
+                boolean taken = click ? roles.get(group).contains(info.optString("role"))
+                        : cue == null || cues.getOrDefault(group, Collections.emptySet()).contains(cue);
+                if (taken) {
+                    continue; // solo se completa lo que falta
+                }
+            }
+            if (!copyBundled(BUNDLE + "/audio/" + id + ".wav", audioFile(id))) {
+                continue;
+            }
+            files.put(id, new JSONObject(info.toString()));
+            if (click) {
+                roles.computeIfAbsent(group, k -> new HashSet<>()).add(info.optString("role"));
+                removedClicks.remove(group);
+            } else {
+                if (!sets.has(group)) {
+                    JSONObject setInfo = bundleSets == null ? null : bundleSets.optJSONObject(group);
+                    sets.put(group, setInfo != null ? new JSONObject(setInfo.toString()) : new JSONObject().put("name", group));
+                }
+                if (cueOf(info) != null) {
+                    cues.computeIfAbsent(group, k -> new HashSet<>()).add(cueOf(info));
+                }
+                removedSets.remove(group);
+            }
+            own.add(group);
+            added++;
+        }
+        String active = active(data);
+        if (active == null || !sets.has(active)) {
+            String preferred = bundle.isNull("active") ? null : bundle.optString("active", null);
+            String picked = preferred != null && sets.has(preferred) ? preferred : pickActive(data);
+            data.put("active", picked == null ? JSONObject.NULL : picked);
+        }
+        save(data);
+        marker.put("version", version).put("sets", sorted(ownSets)).put("clicks", sorted(ownClicks))
+                .put("removed_sets", sorted(removedSets)).put("removed_clicks", sorted(removedClicks));
+        Json.write(bundleMarker(), marker);
+        return added;
     }
 
     // ---- pista guía ---------------------------------------------------------------------------

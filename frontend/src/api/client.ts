@@ -2,7 +2,8 @@ import { apiUrl, isNativeApp, isStandalone } from './base'
 import { Local, pickAudio, pickGuide, type ImportResult } from './local'
 import type {
   Analysis, ExportRequest, GuideKit, GuideUploadResult, Health, Job, Lyrics, LyricsLine, MultitrackStatus,
-  NetworkInfo, Peaks, PresetId, Presets, Quality, SearchResult, SendResult, Settings, Song, SongSettings, UrlInfo,
+  NetworkInfo, Peaks, PlayerGuide, PresetId, Presets, Quality, SearchResult, SendResult, Settings, Song, SongSettings,
+  UrlInfo,
 } from './types'
 
 export class ApiError extends Error {
@@ -80,6 +81,8 @@ export const api = {
   songs: () => request<Song[]>('/api/songs'),
   song: (id: string) => request<Song>(`/api/songs/${id}`),
   analysis: (id: string) => request<Analysis>(`/api/songs/${id}/analysis`),
+  /** Click y Guía para el reproductor (dónde suena cada voz y los audios). */
+  songGuide: (id: string) => request<PlayerGuide>(`/api/songs/${id}/guia`),
   peaks: (id: string) => request<Peaks>(`/api/songs/${id}/peaks`),
   updateSong: (id: string, body: { title?: string; artist?: string | null; settings?: SongSettings }) =>
     request<Song>(`/api/songs/${id}`, json('PATCH', body)),
@@ -111,6 +114,8 @@ export const api = {
     request<GuideKit>(`/api/guia/${fileId}${set ? `?set=${encodeURIComponent(set)}` : ''}`, { method: 'DELETE' }),
   deleteGuideSet: (set: string) => request<GuideKit>(`/api/guia?set=${encodeURIComponent(set)}`, { method: 'DELETE' }),
   deleteClickStyle: (style: string) => request<GuideKit>(`/api/guia/clicks/${encodeURIComponent(style)}`, { method: 'DELETE' }),
+  /** Vuelve a poner las voces y los clicks que trae MoiMoi (también los que se borraron). */
+  restoreIncludedGuide: () => request<GuideKit>('/api/guia/incluidas', { method: 'POST' }),
   /** Sube voces guía (un .zip con el paquete, audios sueltos o una grabación) con progreso. */
   async uploadGuide(files: File[], options: { cue?: string; set?: string | null } = {},
     onProgress?: (fraction: number) => void): Promise<GuideUploadResult> {

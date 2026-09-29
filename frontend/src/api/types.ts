@@ -105,6 +105,18 @@ export interface InstrumentInfo {
   active: [number, number][]
 }
 
+/** Click y Guía para el reproductor: dónde suena cada voz (segundos de la canción) y los audios. */
+export interface PlayerGuide {
+  placements: { cue: string; time: number; label: string }[]
+  /** {voz: url}: las que suenan y los números para la cuenta ("n1"…). */
+  voices: Record<string, string>
+  /** Sonido de click elegido (vacío: el de MoiMoi). */
+  click: { accent?: string; beat?: string }
+  /** Idioma de las voces y nombre del sonido de click (para mostrarlos). */
+  voiceSet?: string | null
+  clickName?: string | null
+}
+
 export interface Analysis {
   version: number
   duration: number
@@ -298,6 +310,8 @@ export interface GuideKit {
   count: number
   missing: string[]
   clicks: ClickStyle[]
+  /** Idiomas que vinieron con MoiMoi (las versiones viejas no lo mandan). */
+  included?: string[]
 }
 
 export interface GuideImportSummary {

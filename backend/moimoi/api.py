@@ -380,6 +380,42 @@ def get_analysis(request: Request, song_id: str):
     return data
 
 
+@router.get("/songs/{song_id}/guia")
+def get_song_guide(request: Request, song_id: str):
+    """Click y Guía para el reproductor, igual que en el paquete para Multitrack: dónde suena cada
+    voz (segundos de la canción), los audios de esas voces (y de los números, para la cuenta) y los
+    del sonido de click elegido."""
+    song = _song_or_404(request, song_id)
+    analysis = read_json(_paths(request, song_id).analysis)
+    if analysis is None:
+        raise HTTPException(404, "Todavía no hay análisis")
+    settings = get_settings(request)
+    kit = _kit(request)
+    grid = exports.effective_grid(analysis, song.get("settings") or {})
+    sections = exports.song_sections(analysis, song)
+    voices = kit.assignments()
+    extras = exports.key_change_extras(analysis, sections) if settings.get("guideKeyChanges", True) else {}
+    plan = guia.plan_guide(sections, grid.beats, grid.beats_per_bar, set(voices), lambda t: t, [],
+                           numbering=settings.get("guideNumbering") or "verses", extras=extras)
+    used = {p.cue for p in plan} | {f"n{i}" for i in range(1, max(4, grid.beats_per_bar) + 1)}
+    style = next((c for c in kit.describe()["clicks"] if c["id"] == settings.get("exportClickSound")), None)
+    click = {}
+    if style:
+        sounds = style["sounds"]
+        beat = sounds.get("beat") or sounds.get("eighth") or sounds.get("sixteenth") or sounds.get("accent")
+        if beat:
+            click = {"accent": sounds.get("accent") or beat, "beat": beat}
+    described = kit.describe()
+    voice_set = next((s["name"] for s in described["sets"] if s["active"]), None)
+    return {
+        "placements": [{"cue": p.cue, "time": round(p.time, 3), "label": p.label} for p in plan],
+        "voices": {cue: f"/api/guia/audio/{path.stem}.wav" for cue, path in voices.items() if cue in used},
+        "click": click,
+        "voiceSet": voice_set,
+        "clickName": style["name"] if style else None,
+    }
+
+
 @router.get("/songs/{song_id}/peaks")
 def get_peaks(request: Request, song_id: str):
     _song_or_404(request, song_id)
@@ -600,7 +636,7 @@ DEFAULT_SETTINGS = {
     "exportClick": True,
     "exportGuide": True,
     "exportPreRollBars": 1,
-    "exportClickSound": "moimoi",
+    "exportClickSound": "classic",  # viene incluido (si no está, el de MoiMoi)
     "guideNumbering": "verses",
     "guideKeyChanges": True,
     # Celulares y tablets de la misma red
@@ -682,6 +718,14 @@ async def upload_guide(request: Request, files: list[UploadFile] = File(...), cu
 
 class GuideActive(BaseModel):
     set: str
+
+
+@router.post("/guia/incluidas")
+def restore_bundled_guide(request: Request):
+    """Vuelve a poner las voces guía y los clicks que trae MoiMoi (también los que se borraron)."""
+    if _kit(request).install_bundled(request.app.state.cfg.guide_bundle, restore=True) < 0:
+        raise HTTPException(404, "Esta instalación no trae voces incluidas")
+    return _kit(request).describe()
 
 
 @router.put("/guia/activo")

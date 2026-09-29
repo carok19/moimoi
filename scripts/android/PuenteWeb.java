@@ -21,8 +21,9 @@ import org.json.JSONObject;
  *
  *   java PuenteWeb carpeta_modelo frontend/dist puerto archivo_de_audio...
  *
- * Con MOIMOI_RAIZ se usa esa carpeta de datos (si no, una temporal nueva) y con MOIMOI_GUIA
- * (rutas separadas por ":") lo que "elige" el selector de voces guía.
+ * Con MOIMOI_RAIZ se usa esa carpeta de datos (si no, una temporal nueva), con MOIMOI_GUIA
+ * (rutas separadas por ":") lo que "elige" el selector de voces guía y con MOIMOI_RECURSOS la
+ * carpeta de lo que la app trae adentro (por defecto recursos/, con las voces incluidas).
  *
  * Sirve la interfaz compilada y hace de "puente de Android": los pedidos que la app haría a sus
  * plugins (MoiMoiLocal, SharedLink, App) llegan acá por POST /bridge y los responde el mismo
@@ -46,7 +47,11 @@ public class PuenteWeb {
         }
         String fixed = System.getenv("MOIMOI_RAIZ");
         File root = fixed != null && !fixed.isEmpty() ? new File(fixed) : Files.createTempDirectory("moimoi-puente").toFile();
-        backend = LocalBackend.create(new PruebaLocal.DesktopPlatform(root, model, 4));
+        PruebaLocal.DesktopPlatform platform = new PruebaLocal.DesktopPlatform(root, model, 4);
+        // Lo que la app trae adentro (las voces guía incluidas): recursos/ del repositorio.
+        String bundled = System.getenv("MOIMOI_RECURSOS");
+        platform.bundled = new File(bundled != null && !bundled.isEmpty() ? bundled : "recursos");
+        backend = LocalBackend.create(platform);
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
         server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
         server.createContext("/", PuenteWeb::handle);

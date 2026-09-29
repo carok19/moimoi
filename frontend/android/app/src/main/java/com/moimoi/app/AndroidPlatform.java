@@ -60,6 +60,35 @@ public final class AndroidPlatform implements Platform {
     }
 
     @Override
+    public int thermalLevel() {
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            return 0;
+        }
+        android.os.PowerManager power = (android.os.PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        if (power == null) {
+            return 0;
+        }
+        int level = power.getCurrentThermalStatus(); // 0 = sin calentar … 6 = apagándose
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            // Pronóstico a 10 s: 1.0 = el sistema va a frenar la CPU por calor.
+            float headroom = power.getThermalHeadroom(10);
+            if (!Float.isNaN(headroom)) {
+                level = Math.max(level, headroom >= 0.95f ? 2 : headroom >= 0.8f ? 1 : 0);
+            }
+        }
+        return level;
+    }
+
+    @Override
+    public InputStream openBundled(String path) {
+        try {
+            return context.getAssets().open(path);
+        } catch (IOException e) {
+            return null; // la app no trae ese archivo
+        }
+    }
+
+    @Override
     public String engineDetail() {
         return "Demucs 6 pistas en este celular (" + threads() + " núcleos)";
     }

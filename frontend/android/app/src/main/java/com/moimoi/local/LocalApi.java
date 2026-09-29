@@ -243,6 +243,11 @@ public final class LocalApi {
                     return importGuideJson(bodyObject(body));
                 }
             }
+            if (n == 2 && parts.get(1).equals("incluidas") && method.equals("POST")) {
+                // Vuelve a poner las voces y los clicks que trae la app (también los que se borraron).
+                kit.installBundled(true);
+                return kit.describe(null);
+            }
             if (n == 2 && parts.get(1).equals("activo") && method.equals("PUT")) {
                 kit.setActive(bodyObject(body).optString("set", null));
                 return kit.describe(null);
@@ -348,7 +353,7 @@ public final class LocalApi {
         d.put("exportClick", true);
         d.put("exportGuide", true);
         d.put("exportPreRollBars", 1);
-        d.put("exportClickSound", "moimoi");
+        d.put("exportClickSound", "classic"); // viene incluido (si no está, el de MoiMoi)
         d.put("guideNumbering", "verses");
         d.put("guideKeyChanges", true);
         d.put("lanAccess", false);
@@ -526,6 +531,14 @@ public final class LocalApi {
                 throw new ApiException(404, "Todavía no hay análisis");
             }
             return data;
+        }
+        if (n == 3 && action.equals("guia") && get) {
+            // Click y Guía para el reproductor (con las voces y el sonido de click elegidos).
+            JSONObject data = Json.readObject(paths.analysis());
+            if (data == null) {
+                throw new ApiException(404, "Todavía no hay análisis");
+            }
+            return Exporter.playerGuide(song, data, settings(), backend.guide);
         }
         if (n == 3 && action.equals("peaks") && get) {
             JSONObject data = Json.readObject(paths.peaks());

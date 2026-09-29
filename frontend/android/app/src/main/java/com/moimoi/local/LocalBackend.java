@@ -80,6 +80,11 @@ public final class LocalBackend implements Jobs.Handler {
         } catch (JSONException e) {
             e.printStackTrace();
         }
+        try {
+            guide.installBundled(false); // voces guía y clicks que trae la app (la primera vez)
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         cleanupExports(24);
         jobs.start();
     }

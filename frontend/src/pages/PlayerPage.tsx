@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 import { ArrowLeft, ExternalLink, Loader2, MoreHorizontal, Package, RefreshCw, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
-import { apiUrl, isStandalone } from '../api/base'
+import { apiUrl } from '../api/base'
 import type { Analysis, MixerChannel, Peaks, Section, Song, StemId } from '../api/types'
 import { decodePeaks } from '../audio/peaks'
-import { playbackQuality, StemPlayer, type LoopRange } from '../audio/StemPlayer'
+import { playbackQuality, StemPlayer, type GuideVoice, type LoopRange } from '../audio/StemPlayer'
 import { ChordPanel, ChordStrip } from '../components/ChordPanel'
 import { ExportDialog } from '../components/ExportDialog'
 import { Menu } from '../components/Menu'
@@ -49,6 +49,9 @@ export function PlayerPage({ songId }: { songId: string }) {
   const [metronome, setMetronome] = useState(false)
   const [metronomeVolume, setMetronomeVolume] = useState(settings.metronomeVolume)
   const [countIn, setCountIn] = useState(0)
+  const [guideOn, setGuideOn] = useState(false)
+  const [guideVolume, setGuideVolume] = useState(0.9)
+  const [guideInfo, setGuideInfo] = useState<{ voices: number; voiceSet: string | null; clickName: string | null } | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
 
   // ---- carga -------------------------------------------------------------------------------
@@ -154,6 +157,49 @@ export function PlayerPage({ songId }: { songId: string }) {
   useEffect(() => { player?.setMetronomeVolume(metronomeVolume) }, [player, metronomeVolume])
   useEffect(() => { player?.setCountIn(countIn) }, [player, countIn])
   useEffect(() => { setMetronomeVolume(settings.metronomeVolume) }, [settings.metronomeVolume])
+  useEffect(() => { player?.setGuideOn(guideOn) }, [player, guideOn])
+  useEffect(() => { player?.setGuideVolume(guideVolume) }, [player, guideVolume])
+
+  // Click y Guía con el sonido de click y las voces incluidas (como en el paquete para Multitrack).
+  // Se vuelve a armar si cambian las partes, el pulso o las opciones de la voz guía.
+  const guideKey = JSON.stringify([sectionsEdited, beatScale, downbeatShift, settings.exportClickSound,
+    settings.guideNumbering, settings.guideKeyChanges])
+  useEffect(() => {
+    if (!player || !song || !analysis) return
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const guide = await api.songGuide(song.id)
+          const cache = new Map<string, Promise<AudioBuffer | null>>()
+          const load = (url?: string) => {
+            if (!url) return Promise.resolve(null)
+            let pending = cache.get(url)
+            if (!pending) {
+              pending = fetch(apiUrl(url)).then((r) => r.arrayBuffer()).then((data) => player.ctx.decodeAudioData(data))
+                .catch(() => null)
+              cache.set(url, pending)
+            }
+            return pending
+          }
+          const voices = await Promise.all(guide.placements.map(async (p) => ({ time: p.time, buffer: await load(guide.voices[p.cue]) })))
+          const count = await Promise.all(Array.from({ length: 12 }, (_, i) => load(guide.voices[`n${i + 1}`])))
+          const [accent, beat] = await Promise.all([load(guide.click.accent), load(guide.click.beat)])
+          if (cancelled) return
+          player.setGuide(voices.filter((v): v is GuideVoice => v.buffer !== null), count.map((b) => b ?? undefined))
+          player.setClickSounds(accent, beat)
+          setGuideInfo({ voices: voices.length, voiceSet: guide.voiceSet ?? null, clickName: guide.clickName ?? null })
+        } catch {
+          if (!cancelled) setGuideInfo({ voices: 0, voiceSet: null, clickName: null })
+        }
+      })()
+    }, guideInfo ? 1200 : 0) // después de un cambio, espera a que se guarden las partes editadas
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [player, song?.id, analysis, guideKey])
 
   // ---- guardar ajustes de la canción -------------------------------------------------------------
   useDebouncedEffect(() => {
@@ -233,6 +279,10 @@ export function PlayerPage({ songId }: { songId: string }) {
         case 'C':
           setCountIn((v) => (v > 0 ? 0 : 1))
           break
+        case 'g':
+        case 'G':
+          setGuideOn((v) => !v)
+          break
         case '[':
           setRate((r) => clamp(Math.round((r - 0.05) * 100) / 100, 0.5, 1.5))
           break
@@ -308,9 +358,6 @@ export function PlayerPage({ songId }: { songId: string }) {
           <Loader2 size={30} className="spin" color="#b7a3ff" />
           <div>{loading?.message ?? 'Cargando…'}</div>
           <div className="progress"><div style={{ width: `${Math.max(3, (loading?.fraction ?? 0) * 100)}%` }} /></div>
-          <div className="tiny faint">
-            Las pistas se cargan en la memoria {isStandalone() ? 'del celular' : 'del navegador'} para poder cambiar velocidad y tono al instante.
-          </div>
         </div>
       </main>
     )
@@ -409,8 +456,8 @@ export function PlayerPage({ songId }: { songId: string }) {
 
       {player.reduced && (
         <div className="tiny faint" style={{ margin: '-8px 0 14px' }}>
-          Canción larga: se escucha en calidad reducida{player.mono ? ' y en mono' : ''} para que alcance la memoria de este
-          dispositivo. Lo que exportes sale en calidad completa.
+          Canción larga: se escucha en calidad reducida{player.mono ? ' (mono)' : ''} para que no se cierre la app. Lo que
+          exportes sale en calidad completa.
         </div>
       )}
 
@@ -439,6 +486,20 @@ export function PlayerPage({ songId }: { songId: string }) {
             band={settings.band}
             onChange={(id, patch) => setMixer((m) => ({ ...m, [id]: { volume: 1, pan: 0, mute: false, solo: false, ...(m[id] ?? {}), ...patch } }))}
             onReplace={setMixer}
+            extras={[
+              {
+                id: 'click', name: 'Click', color: '#c9ced9', on: metronome, volume: metronomeVolume,
+                detail: !grid.beats.length ? 'No se detectó el pulso' : `Sonido ${guideInfo?.clickName ?? 'MoiMoi'}`,
+                onToggle: () => setMetronome((v) => !v), onVolume: setMetronomeVolume,
+              },
+              {
+                id: 'guide', name: 'Guía', color: '#f0c05a', on: guideOn, volume: guideVolume,
+                detail: guideInfo === null ? 'Preparando…'
+                  : guideInfo.voices ? `Anuncia las partes${guideInfo.voiceSet ? ` · ${guideInfo.voiceSet}` : ''}`
+                    : 'Sin voces para esta canción',
+                onToggle: () => setGuideOn((v) => !v), onVolume: setGuideVolume,
+              },
+            ]}
           />
         </div>
         <aside className="side">
@@ -457,7 +518,10 @@ export function PlayerPage({ songId }: { songId: string }) {
             onRename={(index, label) => setSectionsEdited(sections.map((s, i) => (i === index ? { ...s, label } : s)))}
             onReset={() => setSectionsEdited(null)}
           />
-          <LyricsPanel song={song} player={player} onSeek={seek} onRefreshSong={refreshSong} />
+          {/* En el celular todavía no hay letra automática: sin panel vacío. */}
+          {!(health?.standalone && !health.features.lyrics) && (
+            <LyricsPanel song={song} player={player} onSeek={seek} onRefreshSong={refreshSong} />
+          )}
         </aside>
       </div>
 
@@ -471,6 +535,7 @@ export function PlayerPage({ songId }: { songId: string }) {
         bpm={grid.bpm}
         loopOn={loopOn}
         metronome={metronome}
+        guide={guideOn}
         metronomeVolume={metronomeVolume}
         countIn={countIn}
         masterVolume={masterVolume}
@@ -483,6 +548,7 @@ export function PlayerPage({ songId }: { songId: string }) {
         onSemitones={setSemitones}
         onLoop={toggleLoop}
         onMetronome={() => setMetronome((v) => !v)}
+        onGuide={() => setGuideOn((v) => !v)}
         onMetronomeVolume={setMetronomeVolume}
         onCountIn={setCountIn}
         onMasterVolume={setMasterVolume}

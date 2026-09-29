@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -303,3 +304,85 @@ def test_guide_api(client, tmp_path):
     assert [s["id"] for s in only_es["sets"]] == ["es"] and only_es["active"] == "es"
     assert client.delete("/api/guia/clicks/classic").json()["clicks"] == []
     assert client.delete("/api/guia").json()["sets"] == []
+
+
+# ---- voces incluidas con MoiMoi (recursos/voz-guia) ----------------------------------------------
+
+BUNDLE = Path(__file__).resolve().parents[2] / "recursos" / "voz-guia"
+INCLUDED = ["en-f", "es", "fr", "pt"]
+
+
+def _files_in(kit: guia.GuideKit, set_id: str) -> int:
+    return len(kit.describe(set_id)["files"])
+
+
+def _voice(folder: Path, name: str, freq: float) -> Path:
+    path = folder / f"{name}.wav"
+    path.write_bytes(wav_bytes(tone(freq, 0.6)))
+    return path
+
+
+@pytest.mark.skipif(not (BUNDLE / "kit.json").is_file(), reason="no está recursos/voz-guia")
+def test_bundled_voices_install_once_respect_user_and_restore(tmp_path):
+    # Alguien que ya tenía su propio paquete en español: su español queda como estaba.
+    kit = guia.GuideKit(tmp_path / "voz-guia")
+    kit.import_files([("Spanish - Intro.wav", _voice(tmp_path, "intro", 330)),
+                      ("Spanish - Coro.wav", _voice(tmp_path, "coro", 440))])
+    assert kit.install_bundled(BUNDLE) > 100
+    described = kit.describe()
+    assert sorted(s["id"] for s in described["sets"]) == INCLUDED
+    assert described["included"] == ["en-f", "fr", "pt"]
+    assert described["active"] == "es" and _files_in(kit, "es") == 2
+    assert len(described["clicks"]) == 8
+
+    # Una segunda vez (reabrir MoiMoi) no duplica nada.
+    fr = _files_in(kit, "fr")
+    assert kit.install_bundled(BUNDLE) == 0 and _files_in(kit, "fr") == fr > 40
+
+    # Lo que el usuario borra no vuelve solo; "Restaurar voces incluidas" lo trae de nuevo.
+    kit.remove_set("fr")
+    kit.remove_clicks("cowbell")
+    assert kit.install_bundled(BUNDLE) == 0
+    kit._bundle_marker.write_text(kit._bundle_marker.read_text().replace('"version"', '"version_vieja"'))
+    kit.install_bundled(BUNDLE)  # otra versión de MoiMoi: tampoco lo vuelve a poner
+    assert "fr" not in [s["id"] for s in kit.describe()["sets"]]
+    assert "cowbell" not in [c["id"] for c in kit.describe()["clicks"]]
+    kit.install_bundled(BUNDLE, restore=True)
+    assert _files_in(kit, "fr") == fr and len(kit.describe()["clicks"]) == 8
+    assert _files_in(kit, "es") == 2
+
+
+@pytest.mark.skipif(not (BUNDLE / "kit.json").is_file(), reason="no está recursos/voz-guia")
+def test_bundled_voices_in_a_new_installation(tmp_path, song_data):
+    from fastapi.testclient import TestClient
+
+    from helpers import FakeSeparator
+    from moimoi.analysis import analyze_song
+    from moimoi.app import create_app
+    from moimoi.config import Config
+
+    song, _ = song_data
+    cfg = Config(data_dir=tmp_path / "datos", frontend_dir=tmp_path / "no-hay-frontend", guide_bundle=BUNDLE)
+    with TestClient(create_app(cfg, separator=FakeSeparator(song.stems), analyzer=analyze_song)) as client:
+        kit = client.get("/api/guia").json()
+        assert kit["included"] == INCLUDED and kit["active"] == "es" and kit["count"] >= 30
+        settings = client.get("/api/settings").json()
+        assert settings["exportClickSound"] == "classic" and settings["exportGuide"] is True
+        created = wait_for(client, upload(client, song_data)["id"])
+        job = wait_job(client, client.post(f"/api/songs/{created['id']}/exports", json={
+            "type": "multitrack", "stems": ["drums"], "click": True, "clickSound": "classic", "guide": True,
+            "preRollBars": 1}).json()["id"])
+        assert job["status"] == "done", job
+        with zipfile.ZipFile(io.BytesIO(client.get(job["downloadUrl"]).content)) as zf:
+            assert {"Guia.wav", "Click.wav"} <= set(zf.namelist())
+            manifest = json.loads(zf.read("moimoi.json"))
+        assert [p["voz"] for p in manifest["guia"][:4]] == ["n1", "n2", "n3", "n4"]
+        guide = client.get(f"/api/songs/{created['id']}/guia").json()
+        assert guide["voiceSet"] == "Español" and guide["clickName"] == "Classic"
+        assert {"accent", "beat"} <= set(guide["click"]) and {"n1", "n2", "n3", "n4"} <= set(guide["voices"])
+        assert guide["placements"] and all(p["cue"] in guide["voices"] for p in guide["placements"])
+        assert client.get(guide["voices"]["n1"]).status_code == 200
+        client.delete("/api/guia?set=pt")
+        assert "pt" not in client.get("/api/guia").json()["included"]
+        restored = client.post("/api/guia/incluidas").json()
+        assert "pt" in restored["included"]

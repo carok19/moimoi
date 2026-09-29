@@ -299,6 +299,61 @@ public final class Exporter {
         return out;
     }
 
+    // ---- la Guía y el click en el reproductor ----------------------------------------------
+
+    /**
+     * Para escuchar la Guía y el click en el reproductor, igual que en el paquete para Multitrack:
+     * dónde suena cada voz (segundos de la canción), los audios de esas voces (y de los números,
+     * para la cuenta) y los del sonido de click elegido.
+     */
+    public static JSONObject playerGuide(JSONObject song, JSONObject analysis, JSONObject settings, Guide kit)
+            throws JSONException {
+        Grid grid = effectiveGrid(analysis, song.optJSONObject("settings"));
+        JSONArray sections = songSections(analysis, song);
+        Map<String, File> voices = kit.assignments();
+        Map<Integer, String> extras = settings.optBoolean("guideKeyChanges", true)
+                ? keyChangeExtras(analysis, sections) : new java.util.HashMap<Integer, String>();
+        String numbering = settings.optString("guideNumbering", "verses");
+        List<Guide.Placement> plan = Guide.plan(sections, grid.beats, grid.beatsPerBar, voices.keySet(), t -> t,
+                new double[0], numbering.isEmpty() ? "verses" : numbering, extras, null);
+        JSONArray placements = new JSONArray();
+        Set<String> used = new java.util.TreeSet<>();
+        for (Guide.Placement p : plan) {
+            placements.put(new JSONObject().put("cue", p.cue).put("time", r3(p.time)).put("label", p.label));
+            used.add(p.cue);
+        }
+        for (int i = 1; i <= Math.max(4, grid.beatsPerBar); i++) {
+            used.add("n" + i); // para la cuenta antes de empezar
+        }
+        JSONObject urls = new JSONObject();
+        for (String cue : used) {
+            File f = voices.get(cue);
+            if (f != null) {
+                urls.put(cue, kit.urlOf(f));
+            }
+        }
+        String style = settings.optString("exportClickSound", "classic");
+        JSONObject described = kit.describe(null);
+        String setName = null;
+        JSONArray sets = described.optJSONArray("sets");
+        for (int i = 0; sets != null && i < sets.length(); i++) {
+            if (sets.getJSONObject(i).optBoolean("active")) {
+                setName = sets.getJSONObject(i).optString("name");
+            }
+        }
+        String clickName = null;
+        JSONArray clicks = described.optJSONArray("clicks");
+        for (int i = 0; clicks != null && i < clicks.length(); i++) {
+            if (clicks.getJSONObject(i).optString("id").equals(style)) {
+                clickName = clicks.getJSONObject(i).optString("name");
+            }
+        }
+        return new JSONObject().put("placements", placements).put("voices", urls)
+                .put("click", kit.clickUrls(style))
+                .put("voiceSet", setName == null ? JSONObject.NULL : setName)
+                .put("clickName", clickName == null ? JSONObject.NULL : clickName);
+    }
+
     // ---- partes de la canción --------------------------------------------------------------
 
     static JSONArray songSections(JSONObject analysis, JSONObject song) {

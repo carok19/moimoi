@@ -83,7 +83,9 @@ export function SongCard({ song, onChange }: { song: Song; onChange: () => void 
       <div className="info">
         <div>
           <div style={{ fontWeight: 750 }} className="ellipsis" title={song.title}>{song.title}</div>
-          <div className="small muted ellipsis">{song.artist || (song.sourceType === 'url' ? 'Desde un link' : 'Archivo subido')}</div>
+          {(song.artist || song.sourceType === 'url') && (
+            <div className="small muted ellipsis">{song.artist || 'Desde un link'}</div>
+          )}
         </div>
         {processing && (
           <div className="stack" style={{ gap: 7 }}>
