@@ -67,8 +67,8 @@ export function TempoPanel(p: Props) {
         {p.oldAnalysis && (
           <div className="banner info small" style={{ margin: 0 }}>
             <div className="grow">
-              Esta canción se analizó con la versión anterior. Vuelve a analizarla para que detecte los cambios de tempo
-              (por ejemplo, en un popurrí).
+              Esta canción se analizó con una versión anterior. Vuelve a analizarla para que detecte los cambios de tempo
+              y de tonalidad (por ejemplo, en un popurrí).
             </div>
             {p.onReanalyze && (
               <button className="btn small" onClick={p.onReanalyze}><RefreshCw size={14} />Analizar</button>

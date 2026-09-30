@@ -241,6 +241,13 @@ public class PruebaLocal {
                 "audio/wav", "6stems", "normal");
         check(six.getString("title").equals("Mi Canción") && six.getString("artist").equals("Artista Prueba"),
                 "título y artista desde el nombre: " + six);
+        // "CANCIÓN - VIDEO OFICIAL - Artista" (como en YouTube): el título va antes de "VIDEO OFICIAL".
+        String[] coritos = com.moimoi.local.LocalBackend.titleFromFilename(
+                "CORITOS - VIDEO OFICIAL -Miel San Marcos Ft Marcos Witt, Daniel Calveti e Ingrid Rosario.mp3");
+        check(coritos[0].equals("CORITOS") && "Miel San Marcos Ft Marcos Witt, Daniel Calveti e Ingrid Rosario".equals(coritos[1]),
+                "título y artista con VIDEO OFICIAL en el medio: " + java.util.Arrays.toString(coritos));
+        String[] plain = com.moimoi.local.LocalBackend.titleFromFilename("Re-encuentro.mp3");
+        check(plain[0].equals("Re-encuentro") && plain[1] == null, "guion dentro de una palabra: " + java.util.Arrays.toString(plain));
         check(six.getString("status").equals("queued") && six.getString("preset").equals("6stems"), "en cola");
         JSONObject two = b.importFile(new ByteArrayInputStream(wav), "otra.wav", "audio/wav", "2stems", "alta");
         check(two.getString("quality").equals("normal"), "en el celular hay una sola calidad");

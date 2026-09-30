@@ -198,6 +198,28 @@ def test_medley_with_tempo_changes():
     assert np.all(np.diff(beats) > 0.3)
 
 
+def test_minor_medley_with_dominant_pedal():
+    """Popurrí en menor (como "Coritos"): Mi menor con un tramo largo quieto en Si (la dominante) y
+    después La menor. Si no es un cambio de tonalidad, y el cambio a La menor cae donde empieza la
+    segunda canción."""
+    first = make_song([
+        Section("Intro", ["Em", "Am", "B", "Em"], vocals=False, energy=0.7),
+        Section("Verso", ["Em", "Am", "B", "Em", "Em", "Am", "B", "B"], vocals=True, energy=0.9),
+        Section("Puente", ["B"] * 12, vocals=True, energy=1.0),
+        Section("Coro", ["Em", "D", "C", "B", "Em", "Am", "B", "Em"], vocals=True, energy=1.2),
+    ], bpm=120.0)
+    second = make_song([
+        Section("Verso", ["Am", "G", "Dm", "E", "Am", "G", "Dm", "E"], vocals=True, energy=0.9),
+        Section("Coro", ["Am", "Dm", "G", "C", "F", "Dm", "E", "Am"], vocals=True, energy=1.2),
+        Section("Final", ["Am", "E", "Am", "Am"], vocals=False, energy=0.7),
+    ], bpm=120.0, seed=3)
+    stems, _, starts = _medley(first, second)
+    result = analyze_song(stems, 44100)
+    assert result["keyStart"]["name"] == "Em"
+    assert [c["name"] for c in result["keyChanges"]] == ["Am"]
+    assert result["keyChanges"][0]["time"] == pytest.approx(starts[1], abs=4.0)
+
+
 def test_single_tempo_song_has_one_segment(worship):
     _, result = worship
     segments = result["tempo"]["segments"]

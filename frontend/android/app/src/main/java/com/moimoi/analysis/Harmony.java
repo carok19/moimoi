@@ -14,12 +14,21 @@ final class Harmony {
 
     private Harmony() {}
 
-    static final double KAPPA = 10.0;
+    static final double KAPPA = 40.0;
+    static final double PRIOR_WEIGHT = 4.0;
+    static final double CHROMA_WHITEN = 0.8;
     static final double KEY_BONUS = 0.6;
+    static final double KEY_NEIGHBOUR_MARGIN = 0.1;
     static final double BASS_WEIGHT = 2.0;
     static final double KEY_KAPPA = 8.0;
     static final double KEY_STAY = 0.995;
+    static final double CHORD_KEY_WEIGHT = 16.0;
+    static final int CHORD_KEY_HALF = 48;
     static final int MIN_KEY_REGION_BEATS = 24;
+    static final double MIN_KEY_REGION_SECONDS = 16.0;
+    static final double MAX_DOMINANT_PEDAL_SECONDS = 40.0;
+    static final double KEY_TEMPO_SNAP_SECONDS = 12.0;
+    static final double KEY_SECTION_SNAP_SECONDS = 10.0;
 
     /** Tonalidad como índice 0-23: 0-11 mayores (tónica = índice), 12-23 menores. */
     static int keyIndex(int tonic, boolean major) {
@@ -37,6 +46,18 @@ final class Harmony {
     static int relative(int key) {
         int tonic = tonicOf(key);
         return majorOf(key) ? keyIndex((tonic + 9) % 12, false) : keyIndex((tonic + 3) % 12, true);
+    }
+
+    /** _fifth_neighbours: las tonalidades a una quinta (abajo y arriba) y sus relativas. */
+    static int[] fifthNeighbours(int key) {
+        int tonic = tonicOf(key);
+        boolean major = majorOf(key);
+        int down = keyIndex((tonic + 5) % 12, major), up = keyIndex((tonic + 7) % 12, major);
+        return new int[] {down, relative(down), up, relative(up)};
+    }
+
+    static boolean isDominantOf(int key, int other) {
+        return majorOf(key) && tonicOf(key) == (tonicOf(other) + 7) % 12;
     }
 
     static final class Chord {
@@ -239,8 +260,42 @@ final class Harmony {
 
     // ---- tonalidad --------------------------------------------------------------------------------
 
-    /** track_keys: tonalidad de cada tramo, con suavizado fuerte (solo modulaciones reales). */
-    static int[] trackKeys(double[][] harm, double[] durations) {
+    /**
+     * _chord_key_evidence: [tonalidad][tramo] 0.6 si el acorde que suena en el tramo es diatónico a la
+     * tonalidad y 0.5 más si es su tónica (lo mismo que mide keyFit, pero pulso a pulso).
+     */
+    static double[][] chordKeyEvidence(List<Chord> chords, double[] bounds) {
+        int n = bounds.length - 1;
+        double[][] evidence = new double[24][n];
+        int j = 0;
+        for (int s = 0; s < n; s++) {
+            double middle = (bounds[s] + bounds[s + 1]) / 2;
+            while (j + 1 < chords.size() && chords.get(j).end <= middle) {
+                j++;
+            }
+            if (chords.isEmpty() || chords.get(j).quality < 0) {
+                continue;
+            }
+            Chord c = chords.get(j);
+            for (int key = 0; key < 24; key++) {
+                int tonic = tonicOf(key);
+                boolean major = majorOf(key);
+                double e = Music.isDiatonic(c.root, c.quality, tonic, major) ? 0.6 : 0.0;
+                if (c.root == tonic && Music.INTERVALS[c.quality][1] == Music.INTERVALS[major ? 0 : 1][1]) {
+                    e += 0.5;
+                }
+                evidence[key][s] = e;
+            }
+        }
+        return evidence;
+    }
+
+    /**
+     * track_keys: tonalidad de cada tramo, con suavizado fuerte (solo modulaciones reales). Con los
+     * acordes de una primera pasada (chords y bounds, o null) además del croma cuenta qué tonalidad
+     * los explica: en una mezcla densa el croma queda casi plano y confunde las tonalidades vecinas.
+     */
+    static int[] trackKeys(double[][] harm, double[] durations, List<Chord> chords, double[] bounds) {
         Music.Templates profiles = Music.keyProfiles();
         int n = harm[0].length;
         double[][] cumsum = new double[12][n + 1];
@@ -279,6 +334,28 @@ final class Harmony {
                 }
             }
         }
+        if (chords != null && bounds != null) {
+            double[][] evidence = chordKeyEvidence(chords, bounds);
+            double[][] evSum = new double[labels][n + 1];
+            double[] durSum = new double[n + 1];
+            for (int s = 0; s < n; s++) {
+                durSum[s + 1] = durSum[s] + durations[s];
+            }
+            for (int k = 0; k < labels; k++) {
+                double acc = 0;
+                for (int s = 0; s < n; s++) {
+                    acc += evidence[k][s] * durations[s];
+                    evSum[k][s + 1] = acc;
+                }
+            }
+            for (int s = 0; s < n; s++) {
+                int lo = Math.max(0, s - CHORD_KEY_HALF), hi = Math.min(n, s + CHORD_KEY_HALF + 1);
+                double d = Math.max(durSum[hi] - durSum[lo], 1e-9);
+                for (int k = 0; k < labels; k++) {
+                    emission[k][s] += CHORD_KEY_WEIGHT * (evSum[k][hi] - evSum[k][lo]) / d;
+                }
+            }
+        }
         double[] logStay = new double[n];
         double[] logSwitch = new double[n];
         java.util.Arrays.fill(logStay, Math.log(KEY_STAY));
@@ -292,13 +369,12 @@ final class Harmony {
         return keys;
     }
 
-    /** _chord_stats: qué tan bien explican los acordes a una tonalidad (0-1 aprox.). */
-    static double chordStats(List<Chord> chords, int key) {
+    /** _chord_times: fracción del tiempo con acordes diatónicos a la tonalidad y con el de la tónica. */
+    static double[] chordTimes(List<Chord> chords, int key) {
         int tonic = tonicOf(key);
         boolean major = majorOf(key);
         double total = 0, diatonic = 0, tonicTime = 0;
         int third = Music.INTERVALS[major ? 0 : 1][1];
-        Chord firstReal = null, lastReal = null;
         for (Chord c : chords) {
             if (c.quality < 0) {
                 continue;
@@ -311,17 +387,39 @@ final class Harmony {
             if (c.root == tonic && Music.INTERVALS[c.quality][1] == third) {
                 tonicTime += span;
             }
+        }
+        if (total == 0) {
+            total = 1.0;
+        }
+        return new double[] {diatonic / total, tonicTime / total};
+    }
+
+    /** _chord_stats: qué tan bien explican los acordes a una tonalidad (0-1 aprox.). */
+    static double chordStats(List<Chord> chords, int key) {
+        int tonic = tonicOf(key);
+        double[] times = chordTimes(chords, key);
+        Chord firstReal = null, lastReal = null;
+        for (Chord c : chords) {
+            if (c.quality < 0) {
+                continue;
+            }
             if (firstReal == null) {
                 firstReal = c;
             }
             lastReal = c;
         }
-        if (total == 0) {
-            total = 1.0;
-        }
         double ends = lastReal != null && lastReal.root == tonic ? 1.0 : 0.0;
         double starts = firstReal != null && firstReal.root == tonic ? 1.0 : 0.0;
-        return 0.6 * diatonic / total + 0.5 * tonicTime / total + 0.15 * ends + 0.1 * starts;
+        return 0.6 * times[0] + 0.5 * times[1] + 0.15 * ends + 0.1 * starts;
+    }
+
+    /**
+     * _key_fit: como chordStats pero sin el primer y el último acorde: en un tramo del medio de la
+     * canción (un popurrí) dependen de dónde se cortó el tramo, no de la tonalidad.
+     */
+    static double keyFit(List<Chord> chords, int key) {
+        double[] times = chordTimes(chords, key);
+        return 0.6 * times[0] + 0.5 * times[1];
     }
 
     // ---- acordes ------------------------------------------------------------------------------------
@@ -350,7 +448,21 @@ final class Harmony {
         int n = treble[0].length;
         double[] energy = columnSums(treble);
         double medianEnergy = positiveMedian(energy);
-        double[][] unitTreble = unitColumns(treble);
+        // En una mezcla densa (y con la compresión logarítmica) el croma queda casi plano: todos los
+        // acordes se parecen y el Viterbi no cambiaba de acorde en minutos. Restar parte del promedio
+        // deja solo las notas que sobresalen.
+        double[][] whitened = new double[12][n];
+        for (int s = 0; s < n; s++) {
+            double mean = 0;
+            for (int c = 0; c < 12; c++) {
+                mean += treble[c][s];
+            }
+            mean /= 12;
+            for (int c = 0; c < 12; c++) {
+                whitened[c][s] = Math.max(treble[c][s] - CHROMA_WHITEN * mean, 0);
+            }
+        }
+        double[][] unitTreble = unitColumns(whitened);
 
         double[] bassSum = columnSums(bass);
         double[][] bassDist = new double[12][n];
@@ -377,7 +489,7 @@ final class Harmony {
             int root = templates.labels[k][0], quality = templates.labels[k][1];
             int[] intervals = Music.INTERVALS[quality];
             double[] tpl = templates.vectors[k];
-            double prior = Music.PRIOR[quality];
+            double prior = PRIOR_WEIGHT * Music.PRIOR[quality];
             for (int s = 0; s < n; s++) {
                 double sim = 0;
                 for (int c = 0; c < 12; c++) {
@@ -404,9 +516,9 @@ final class Harmony {
         double[] logSwitch = new double[n];
         for (int s = 0; s < n; s++) {
             int p = positions[s];
-            double change = p == 0 ? 0.35 : (p < 0 ? 0.2 : 0.06);
+            double change = p == 0 ? 0.5 : (p < 0 ? 0.3 : 0.1);
             if (p == 2) {
-                change = 0.15;
+                change = 0.25;
             }
             logStay[s] = Math.log(1 - change);
             logSwitch[s] = Math.log(change / (states - 1));
@@ -488,6 +600,67 @@ final class Harmony {
         }
     }
 
+    /**
+     * snap_key_changes: un cambio de tonalidad casi siempre coincide con el comienzo de una sección:
+     * pasa al comienzo más cercano (a 10 s o menos) salvo que los acordes del tramo que cambia de
+     * tonalidad se expliquen mejor con la que tenían (en un popurrí las secciones a veces se cortan
+     * unos segundos antes).
+     */
+    static void snapToSections(Result result, double[] sectionStarts) {
+        int previous = result.keyStart;
+        for (KeyChange change : result.keyChanges) {
+            double target = Double.NaN;
+            for (double t : sectionStarts) {
+                if (Math.abs(t - change.time) <= KEY_SECTION_SNAP_SECONDS
+                        && (Double.isNaN(target) || Math.abs(t - change.time) < Math.abs(target - change.time))) {
+                    target = t;
+                }
+            }
+            if (!Double.isNaN(target)) {
+                double lo = Math.min(target, change.time), hi = Math.max(target, change.time);
+                List<Chord> span = new ArrayList<>();
+                for (Chord c : result.chords) {
+                    if (c.end > lo && c.start < hi) {
+                        Chord part = new Chord();
+                        part.root = c.root;
+                        part.quality = c.quality;
+                        part.start = Math.max(c.start, lo);
+                        part.end = Math.min(c.end, hi);
+                        span.add(part);
+                    }
+                }
+                int owner = target < change.time ? change.key : previous;
+                int other = target < change.time ? previous : change.key;
+                if (keyFit(span, owner) >= keyFit(span, other)) {
+                    change.time = target;
+                }
+            }
+            previous = change.key;
+        }
+    }
+
+    static double span(Region r, double[] bounds, int n) {
+        return bounds[Math.min(r.end, n)] - bounds[r.start];
+    }
+
+    /** Una "tonalidad" de menos de 24 pulsos o de 16 s no es un cambio de tonalidad. */
+    static boolean isShort(Region r, double[] bounds, int n) {
+        return r.end - r.start < MIN_KEY_REGION_BEATS || span(r, bounds, n) < MIN_KEY_REGION_SECONDS;
+    }
+
+    static List<Region> joinSameKeys(List<Region> regions) {
+        List<Region> joined = new ArrayList<>();
+        for (Region r : regions) {
+            Region last = joined.isEmpty() ? null : joined.get(joined.size() - 1);
+            if (last != null && last.key == r.key) {
+                last.end = r.end;
+            } else {
+                joined.add(r);
+            }
+        }
+        return joined;
+    }
+
     static Result analyze(double[][] trebleChroma, double[][] bassChroma, Rhythm rhythm, double duration, double tuning) {
         Segments seg = segments(rhythm, duration, trebleChroma[0].length);
         int total = trebleChroma[0].length;
@@ -513,10 +686,12 @@ final class Harmony {
                 harm[c][s] = (ut[c][s] + 0.6 * ub[c][s]) * w;
             }
         }
-        int[] keys = trackKeys(harm, durations);
+        int[] keys = trackKeys(harm, durations, null, null);
 
-        // Primera pasada de acordes -> refinar la tonalidad (mayor vs. relativa menor).
+        // Primera pasada de acordes -> seguir la tonalidad también con los acordes y después
+        // confirmar la de cada región (vecinas, mayor vs. relativa menor).
         List<Chord> chords = decodeChords(treble, bass, bounds, keys, seg.positions);
+        keys = trackKeys(harm, durations, chords, bounds);
 
         List<Region> regions = new ArrayList<>();
         for (int s = 0; s < n; s++) {
@@ -529,17 +704,19 @@ final class Harmony {
         }
         List<Region> merged = new ArrayList<>();
         for (Region r : regions) {
-            if (!merged.isEmpty() && (r.end - r.start) < MIN_KEY_REGION_BEATS) {
+            if (!merged.isEmpty() && isShort(r, bounds, n)) {
                 merged.get(merged.size() - 1).end = r.end;
             } else {
                 merged.add(new Region(r.key, r.start, r.end));
             }
         }
-        if (merged.size() > 1 && (merged.get(0).end - merged.get(0).start) < MIN_KEY_REGION_BEATS) {
+        if (merged.size() > 1 && isShort(merged.get(0), bounds, n)) {
             merged.get(1).start = merged.get(0).start;
             merged.remove(0);
         }
-        // Mayor o relativa menor: deciden los acordes de cada región.
+        // Los acordes de cada región confirman la tonalidad o eligen una vecina: el croma confunde las
+        // tonalidades a una quinta (Re menor / La menor, Mi menor / La menor), que comparten casi todas
+        // las notas, y la relativa (Do / La menor), que comparte todas.
         for (Region r : merged) {
             double t0 = bounds[r.start], t1 = bounds[Math.min(r.end, n)];
             List<Chord> inRegion = new ArrayList<>();
@@ -548,19 +725,77 @@ final class Harmony {
                     inRegion.add(c);
                 }
             }
-            int rel = relative(r.key);
-            if (chordStats(inRegion, rel) > chordStats(inRegion, r.key) + 0.05) {
-                r.key = rel;
+            int key = r.key;
+            double current = keyFit(inRegion, key);
+            int best = key;
+            double bestGain = 0.0;
+            for (int candidate : fifthNeighbours(key)) {
+                double gain = keyFit(inRegion, candidate) - current - KEY_NEIGHBOUR_MARGIN;
+                if (gain > bestGain) {
+                    best = candidate;
+                    bestGain = gain;
+                }
             }
+            key = best;
+            int rel = relative(key);
+            if (chordStats(inRegion, rel) > chordStats(inRegion, key) + 0.05) {
+                key = rel;
+            }
+            r.key = key;
         }
-        List<Region> finalRegions = new ArrayList<>();
-        for (Region r : merged) {
-            Region last = finalRegions.isEmpty() ? null : finalRegions.get(finalRegions.size() - 1);
-            if (last != null && last.key == r.key) {
-                last.end = r.end;
+        List<Region> finalRegions = joinSameKeys(merged);
+        // Un tramo corto en la dominante (Si antes de Mi menor, Mi antes de La menor) no es un cambio de
+        // tonalidad: es la dominante que prepara (o alarga) la tonalidad vecina.
+        int i = 0;
+        while (i < finalRegions.size()) {
+            Region r = finalRegions.get(i);
+            Region after = i + 1 < finalRegions.size() ? finalRegions.get(i + 1) : null;
+            Region before = i > 0 ? finalRegions.get(i - 1) : null;
+            boolean pedal = span(r, bounds, n) < MAX_DOMINANT_PEDAL_SECONDS;
+            if (pedal && after != null && isDominantOf(r.key, after.key)) {
+                after.start = r.start;
+            } else if (pedal && before != null && isDominantOf(r.key, before.key)) {
+                before.end = r.end;
             } else {
-                finalRegions.add(r);
+                i++;
+                continue;
             }
+            finalRegions.remove(i);
+            finalRegions = joinSameKeys(finalRegions);
+            i = Math.max(i - 1, 0);
+        }
+        // En un popurrí la canción siguiente empieza donde cambia el tempo; el croma y los acordes de
+        // la transición (a veces ambiguos) dejan el cambio de tonalidad unos segundos antes o después.
+        for (int k = 1; k < finalRegions.size(); k++) {
+            double t = bounds[finalRegions.get(k).start];
+            double target = Double.NaN;
+            double nearest = Double.POSITIVE_INFINITY;
+            for (int p = 1; p < rhythm.parts.size(); p++) {
+                double x = rhythm.parts.get(p).start;
+                double d = Math.abs(x - t);
+                if (d <= KEY_TEMPO_SNAP_SECONDS && d < nearest) {
+                    nearest = d;
+                    target = x;
+                }
+            }
+            if (Double.isNaN(target)) {
+                continue;
+            }
+            int lo = finalRegions.get(k - 1).start + 1, hi = finalRegions.get(k).end - 1;
+            if (lo > hi) {
+                continue;
+            }
+            int cut = lo;
+            double closest = Math.abs(bounds[lo] - target);
+            for (int q = lo + 1; q <= hi; q++) {
+                double d = Math.abs(bounds[q] - target);
+                if (d < closest) {
+                    closest = d;
+                    cut = q;
+                }
+            }
+            finalRegions.get(k - 1).end = cut;
+            finalRegions.get(k).start = cut;
         }
         int[] finalKeys = new int[n];
         java.util.Arrays.fill(finalKeys, -1);
@@ -602,10 +837,10 @@ final class Harmony {
             c.start = Dsp.round(c.start, 3);
             c.end = Dsp.round(c.end, 3);
         }
-        for (int i = 1; i < finalRegions.size(); i++) {
+        for (int k = 1; k < finalRegions.size(); k++) {
             KeyChange change = new KeyChange();
-            change.time = Dsp.round(bounds[finalRegions.get(i).start], 3);
-            change.key = finalRegions.get(i).key;
+            change.time = Dsp.round(bounds[finalRegions.get(k).start], 3);
+            change.key = finalRegions.get(k).key;
             result.keyChanges.add(change);
         }
         result.a4 = Dsp.round(440.0 * Math.pow(2, tuning / 12.0), 1);

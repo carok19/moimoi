@@ -32,6 +32,19 @@ def test_guess_title_uses_music_metadata():
 def test_title_from_filename():
     assert ingest.title_from_filename("01 - Artista - Tema_nuevo.mp3") == ("Tema nuevo", "Artista")
     assert ingest.title_from_filename("mi_cancion.wav") == ("mi cancion", None)
+    # "CANCIÓN - VIDEO OFICIAL - Artista": el título va antes de "VIDEO OFICIAL" (como en YouTube).
+    coritos = "CORITOS - VIDEO OFICIAL -Miel San Marcos Ft Marcos Witt, Daniel Calveti e Ingrid Rosario.mp3"
+    assert ingest.title_from_filename(coritos) == (
+        "CORITOS", "Miel San Marcos Ft Marcos Witt, Daniel Calveti e Ingrid Rosario")
+    assert ingest.title_from_filename("Artista - Mi Canción - Video Oficial.mp3") == ("Mi Canción", "Artista")
+    assert ingest.title_from_filename("Re-encuentro.mp3") == ("Re-encuentro", None)
+
+
+def test_guess_title_with_official_video_in_the_middle():
+    info = {"title": "CORITOS - VIDEO OFICIAL -Miel San Marcos Ft Marcos Witt, Daniel Calveti e Ingrid Rosario",
+            "uploader": "Miel San Marcos"}
+    assert ingest.guess_title_artist(info) == (
+        "CORITOS", "Miel San Marcos Ft Marcos Witt, Daniel Calveti e Ingrid Rosario")
 
 
 def test_upload_extension_check():

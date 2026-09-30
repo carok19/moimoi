@@ -138,6 +138,9 @@ export interface PlayerGuide {
   clickName?: string | null
 }
 
+/** Versión del análisis que hacen el programa y la app (moimoi/analysis y Analyzer.java). */
+export const ANALYSIS_VERSION = 3
+
 export interface Analysis {
   version: number
   duration: number

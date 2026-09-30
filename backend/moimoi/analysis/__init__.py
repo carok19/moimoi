@@ -13,11 +13,11 @@ import numpy as np
 
 from .beats import analyze_rhythm
 from .features import build_signals, estimate_tuning
-from .harmony import analyze_harmony, compute_chromas
+from .harmony import analyze_harmony, compute_chromas, snap_key_changes
 from .presence import analyze_presence
 from .sections import analyze_sections
 
-ANALYSIS_VERSION = 2
+ANALYSIS_VERSION = 3
 
 
 def analyze_song(
@@ -36,12 +36,7 @@ def analyze_song(
     harmony = analyze_harmony(treble_chroma, bass_chroma, rhythm, sig.duration, tuning)
     progress(0.75, "Detectando las partes de la canción…")
     sections = analyze_sections(sig, rhythm, treble_chroma)
-    # Un cambio de tonalidad casi siempre coincide con el comienzo de una sección.
-    starts = [s["start"] for s in sections[1:]]
-    for change in harmony["keyChanges"]:
-        near = [t for t in starts if abs(t - change["time"]) <= 10.0]
-        if near:
-            change["time"] = min(near, key=lambda t: abs(t - change["time"]))
+    snap_key_changes(harmony, [s["start"] for s in sections[1:]])
     progress(0.9, "Detectando instrumentos…")
     instruments = analyze_presence(stems, sample_rate)
 

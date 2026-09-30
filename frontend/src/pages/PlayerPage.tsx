@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 import { ArrowLeft, ExternalLink, Loader2, MoreHorizontal, Package, RefreshCw, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
 import { apiUrl } from '../api/base'
-import type { Analysis, MixerChannel, Peaks, Section, Song, StemId, TempoEdit } from '../api/types'
+import { ANALYSIS_VERSION, type Analysis, type MixerChannel, type Peaks, type Section, type Song, type StemId,
+  type TempoEdit } from '../api/types'
 import { decodePeaks } from '../audio/peaks'
 import { playbackQuality, StemPlayer, type GuideVoice, type LoopRange } from '../audio/StemPlayer'
 import { ChordPanel, ChordStrip } from '../components/ChordPanel'
@@ -352,6 +353,20 @@ export function PlayerPage({ songId }: { songId: string }) {
     }
   }
 
+  // Volver a analizar descarta las correcciones de tempo (la grilla nueva puede ser otra).
+  const reanalyze = async () => {
+    if (!song) return
+    if ((tempoEdits.length > 0 || beatScale || downbeatShift)
+        && !window.confirm('Volver a analizar borra las correcciones de tempo que hiciste. ¿Seguir?')) return
+    try {
+      await api.reanalyze(song.id)
+      toast.show('Volviendo a analizar tempo, acordes y partes…')
+      setSong({ ...song, status: 'analyzing', stage: 'En cola para analizar', progress: 0 })
+    } catch (err) {
+      toast.error(err)
+    }
+  }
+
   // ---- vistas ------------------------------------------------------------------------------------
   if (error) {
     return (
@@ -390,6 +405,7 @@ export function PlayerPage({ songId }: { songId: string }) {
   }
 
   const duration = player.duration
+  const oldAnalysis = !!analysis && (analysis.version ?? 0) < ANALYSIS_VERSION
 
   return (
     <main className="page player-page">
@@ -420,16 +436,9 @@ export function PlayerPage({ songId }: { songId: string }) {
                   <ExternalLink size={15} />Abrir link original
                 </button>
               )}
-              {canAnalyze && <button onClick={async () => {
-                close()
-                try {
-                  await api.reanalyze(song.id)
-                  toast.show('Volviendo a analizar tempo, acordes y partes…')
-                  setSong({ ...song, status: 'analyzing', stage: 'En cola para analizar', progress: 0 })
-                } catch (err) {
-                  toast.error(err)
-                }
-              }}><RefreshCw size={15} />Volver a analizar</button>}
+              {canAnalyze && <button onClick={() => { close(); void reanalyze() }}>
+                <RefreshCw size={15} />Volver a analizar
+              </button>}
               <div className="sep" />
               <button onClick={async () => {
                 close()
@@ -446,11 +455,11 @@ export function PlayerPage({ songId }: { songId: string }) {
         </Menu>
       </div>
 
-      {analysis && !analysis.tempo.segments && canAnalyze && (
+      {oldAnalysis && canAnalyze && (
         <div className="tiny faint" style={{ margin: '-8px 0 14px' }}>
-          Esta canción se analizó con la versión anterior.{' '}
-          <button className="linkish" onClick={() => setTempoOpen(true)}>Volver a analizarla</button> para que el click siga
-          los cambios de tempo.
+          Esta canción se analizó con una versión anterior.{' '}
+          <button className="linkish" onClick={() => void reanalyze()}>Volver a analizarla</button> para tener mejores
+          acordes, tonalidades y cambios de tempo.
         </div>
       )}
 
@@ -564,7 +573,7 @@ export function PlayerPage({ songId }: { songId: string }) {
           rate={rate}
           songTitle={song.title}
           songArtist={song.artist}
-          oldAnalysis={!analysis.tempo.segments}
+          oldAnalysis={oldAnalysis}
           onEdit={(start, patch) => {
             // Las correcciones viejas (para toda la canción) pasan a ser del tramo.
             if (beatScale || downbeatShift) {
@@ -574,16 +583,7 @@ export function PlayerPage({ songId }: { songId: string }) {
             editTempo(start, patch)
           }}
           onSeek={seek}
-          onReanalyze={canAnalyze ? async () => {
-            setTempoOpen(false)
-            try {
-              await api.reanalyze(song.id)
-              toast.show('Volviendo a analizar tempo, acordes y partes…')
-              setSong({ ...song, status: 'analyzing', stage: 'En cola para analizar', progress: 0 })
-            } catch (err) {
-              toast.error(err)
-            }
-          } : undefined}
+          onReanalyze={canAnalyze ? () => { setTempoOpen(false); void reanalyze() } : undefined}
           onClose={() => setTempoOpen(false)}
         />
       )}

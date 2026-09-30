@@ -5,8 +5,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -178,6 +180,62 @@ public final class LocalBackend implements Jobs.Handler {
             "\\s*[|•·]\\s*(official|oficial|video|audio|letra|lyrics?|en vivo|live)\\b.*$",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
+    /** Guion entre título y artista (con espacio al menos de un lado: "VIDEO OFICIAL -Miel San Marcos"). */
+    private static final Pattern DASH = Pattern.compile("\\s+[-–—]\\s*|\\s*[-–—]\\s+");
+    /** Una parte que es solo "VIDEO OFICIAL", "Official Audio", "Lyric Video"... */
+    private static final Pattern NOISE_PART = Pattern.compile(
+            "^(?:(?:official|oficial|music|lyrics?|letra|v[ií]deo|audio|visualizer|hd|4k)\\s*)+$",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
+    private static boolean noisePart(String part) {
+        return !part.isEmpty() && NOISE_PART.matcher(part).matches();
+    }
+
+    private static String joinParts(List<String> parts) {
+        List<String> kept = new ArrayList<>();
+        for (String p : parts) {
+            if (!p.isEmpty() && !noisePart(p)) {
+                kept.add(p);
+            }
+        }
+        return String.join(" - ", kept);
+    }
+
+    /**
+     * ingest.split_title_artist: "Artista - Canción" -> {"Canción", "Artista"}. Si una parte "VIDEO
+     * OFICIAL" queda en el medio ("CANCIÓN - VIDEO OFICIAL - Artista ft. Otro"), lo de antes es el
+     * título y lo de después el artista. Sin artista: {"Canción", null}.
+     */
+    public static String[] splitTitleArtist(String text) {
+        List<String> parts = new ArrayList<>();
+        for (String p : DASH.split(text.trim(), -1)) {
+            parts.add(p.trim());
+        }
+        int noise = -1;
+        for (int i = 0; i < parts.size() && noise < 0; i++) {
+            if (noisePart(parts.get(i))) {
+                noise = i;
+            }
+        }
+        if (noise > 0 && noise < parts.size() - 1) {
+            String title = joinParts(parts.subList(0, noise));
+            String artist = joinParts(parts.subList(noise + 1, parts.size()));
+            if (!title.isEmpty() && !artist.isEmpty()) {
+                return new String[] {title, artist};
+            }
+        }
+        List<String> kept = new ArrayList<>();
+        for (String p : parts) {
+            if (!p.isEmpty() && !noisePart(p)) {
+                kept.add(p);
+            }
+        }
+        if (kept.size() >= 2) {
+            return new String[] {String.join(" - ", kept.subList(1, kept.size())), kept.get(0)};
+        }
+        return new String[] {kept.isEmpty() ? text.trim() : kept.get(0), null};
+    }
+
     static String cleanTitle(String title) {
         String cleaned = TITLE_NOISE.matcher(title).replaceAll("");
         cleaned = TRAILING_NOISE.matcher(cleaned).replaceAll("");
@@ -187,20 +245,14 @@ public final class LocalBackend implements Jobs.Handler {
     }
 
     /** "01 - Artista - Canción.mp3" -> {"Canción", "Artista"}. */
-    static String[] titleFromFilename(String filename) {
+    public static String[] titleFromFilename(String filename) {
         String name = new File(filename).getName();
         int dot = name.lastIndexOf('.');
         String stem = (dot > 0 ? name.substring(0, dot) : name).replace('_', ' ').trim();
         stem = stem.replaceFirst("^\\d{1,3}[\\s.\\-]+", "");
-        for (String sep : new String[] {" - ", " – "}) {
-            int i = stem.indexOf(sep);
-            if (i >= 0) {
-                String left = stem.substring(0, i).trim();
-                String right = stem.substring(i + sep.length()).trim();
-                if (!left.isEmpty() && !right.isEmpty()) {
-                    return new String[] {cleanTitle(right), left};
-                }
-            }
+        String[] split = splitTitleArtist(stem);
+        if (split[1] != null) {
+            return new String[] {cleanTitle(split[0]), split[1]};
         }
         String title = cleanTitle(stem);
         return new String[] {title.isEmpty() ? "Canción sin título" : title, null};

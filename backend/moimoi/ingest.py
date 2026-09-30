@@ -24,6 +24,11 @@ _TITLE_NOISE = re.compile(
 _TRAILING_NOISE = re.compile(
     r"\s*[\|•·]\s*(official|oficial|video|audio|letra|lyrics?|en vivo|live)\b.*$", re.IGNORECASE
 )
+# Guion entre título y artista (con espacio al menos de un lado: "VIDEO OFICIAL -Miel San Marcos").
+_DASH = re.compile(r"\s+[-–—]\s*|\s*[-–—]\s+")
+# Una parte que es solo "VIDEO OFICIAL", "Official Audio", "Lyric Video"...
+_NOISE_PART = re.compile(r"^(?:(?:official|oficial|music|lyrics?|letra|v[ií]deo|audio|visualizer|hd|4k)\s*)+$",
+                         re.IGNORECASE)
 
 
 class IngestError(Exception):
@@ -45,17 +50,31 @@ def clean_title(title: str) -> str:
     return cleaned or title.strip()
 
 
+def split_title_artist(text: str) -> tuple[str, str | None]:
+    """"Artista - Canción" -> (canción, artista). Si una parte "VIDEO OFICIAL" queda en el medio
+    ("CANCIÓN - VIDEO OFICIAL - Artista ft. Otro"), lo de antes es el título y lo de después el artista."""
+    parts = [p.strip() for p in _DASH.split(text.strip())]
+    noise = [i for i, p in enumerate(parts) if p and _NOISE_PART.match(p)]
+    if noise and 0 < noise[0] < len(parts) - 1:
+        title = " - ".join(p for p in parts[:noise[0]] if p)
+        artist = " - ".join(p for p in parts[noise[0] + 1:] if p and not _NOISE_PART.match(p))
+        if title and artist:
+            return title, artist
+    parts = [p for p in parts if p and not _NOISE_PART.match(p)]
+    if len(parts) >= 2:
+        return " - ".join(parts[1:]), parts[0]
+    return (parts[0] if parts else text.strip()), None
+
+
 def guess_title_artist(info: dict) -> tuple[str, str | None]:
     """Título y artista a partir de los metadatos de yt-dlp."""
     track, artist = info.get("track"), info.get("artist") or info.get("creator")
     if track and artist:
         return clean_title(str(track)), str(artist).split(",")[0].strip()
     title = _TRAILING_NOISE.sub("", str(info.get("title") or "Canción sin título")).strip() or "Canción sin título"
-    for sep in (" - ", " – ", " — "):
-        if sep in title:
-            left, right = title.split(sep, 1)
-            if left.strip() and right.strip():
-                return clean_title(right), left.strip()
+    name, artist = split_title_artist(title)
+    if artist:
+        return clean_title(name), artist
     uploader = info.get("uploader") or info.get("channel")
     if uploader:
         uploader = re.sub(r"\s*-\s*Topic$", "", str(uploader)).strip()
@@ -65,11 +84,9 @@ def guess_title_artist(info: dict) -> tuple[str, str | None]:
 def title_from_filename(filename: str) -> tuple[str, str | None]:
     stem = Path(filename).stem.replace("_", " ").strip()
     stem = re.sub(r"^\d{1,3}[\s.\-]+", "", stem)  # "01 - Canción" -> "Canción"
-    for sep in (" - ", " – "):
-        if sep in stem:
-            left, right = stem.split(sep, 1)
-            if left.strip() and right.strip():
-                return clean_title(right), left.strip()
+    name, artist = split_title_artist(stem)
+    if artist:
+        return clean_title(name), artist
     return clean_title(stem) or "Canción sin título", None
 
 

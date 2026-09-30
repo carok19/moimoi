@@ -20,7 +20,7 @@ public final class Analyzer {
 
     private Analyzer() {}
 
-    public static final int VERSION = 2;
+    public static final int VERSION = 3;
     static final int SR = Dsp.SR;
     static final int HOP = Dsp.HOP;
     static final String[] TREBLE = {"guitar", "piano", "other"};
@@ -216,19 +216,11 @@ public final class Analyzer {
             sin.tempoStarts[i - 1] = rhythm.parts.get(i).start;
         }
         List<Sections.Section> sections = Sections.analyze(sin);
-        // Un cambio de tonalidad casi siempre coincide con el comienzo de una sección.
-        for (Harmony.KeyChange change : harmony.keyChanges) {
-            double best = Double.NaN;
-            for (int i = 1; i < sections.size(); i++) {
-                double t = sections.get(i).start;
-                if (Math.abs(t - change.time) <= 10.0 && (Double.isNaN(best) || Math.abs(t - change.time) < Math.abs(best - change.time))) {
-                    best = t;
-                }
-            }
-            if (!Double.isNaN(best)) {
-                change.time = best;
-            }
+        double[] sectionStarts = new double[Math.max(0, sections.size() - 1)];
+        for (int i = 1; i < sections.size(); i++) {
+            sectionStarts[i - 1] = sections.get(i).start;
         }
+        Harmony.snapToSections(harmony, sectionStarts);
 
         progress.report(0.96, "Detectando instrumentos…");
         List<double[]> levelList = new ArrayList<>();
